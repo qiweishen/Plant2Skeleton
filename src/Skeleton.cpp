@@ -9,8 +9,7 @@ void Skeleton::Convert2Matrix() {
 }
 
 
-//void Skeleton::Project2PCA(Eigen::Vector3d& center, std::shared_ptr<PointCloud>& plane_cloudPtr,
-//                           std::shared_ptr<PointCloud>& cloudPtr, std::shared_ptr<PointCloud>& projected_cloudPtr) {
+//void Skeleton::Project2PCA(Eigen::MatrixXd& _, std::shared_ptr<PointCloud>& cloudPtr, std::shared_ptr<PointCloud>& projected_cloudPtr) {
 //    Eigen::Vector3d mean;
 //    Eigen::Matrix3d covariance;
 //    std::tie(mean, covariance) = cloudPtr->ComputeMeanAndCovariance();
@@ -262,7 +261,7 @@ void Skeleton::FindOneRingNeighbors(std::shared_ptr<PointCloud> &cloudPtr, bool 
 
 
 void Skeleton::UpdateKNeighbors() {
-    const int max_neighbors = 24;
+    const int max_neighbors = 30;
     const int min_neighbors = 8;
     for (int i = 0; i < smooth_sigma_.size(); ++i) {
         if (smooth_sigma_[i] >= fix_eigen_ratio_ - 0.05) {
@@ -749,10 +748,10 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
             cpts_cloudPtr->points_.emplace_back(cptsPtr->row(j));
         }
         if (!final_flag) {
-            UpdateKNeighbors();
+//            UpdateKNeighbors();
         }
         if (i == 0) {
-            FindOneRingNeighbors(cpts_cloudPtr, true);
+            FindOneRingNeighbors(cpts_cloudPtr, false);
         } else {
             FindOneRingNeighbors(cpts_cloudPtr, false);
         }

@@ -340,6 +340,26 @@ namespace tool {
         }
 
 
+        double Compute95thPercentile(const Eigen::VectorXd &vec) {
+            std::vector<double> data(vec.data(), vec.data() + vec.size());
+            // Sort the vector
+            std::sort(data.begin(), data.end());
+            // Calculate the index for the 95th percentile
+            double index = 0.95 * (int(data.size()) - 1);
+            // If the index is an integer, return the value at that index
+            if (std::floor(index) == index) {
+                return data[static_cast<int>(index)];
+            } else {
+                // If the index is not an integer, interpolate between the two closest values
+                int lowerIndex = std::floor(index);
+                int upperIndex = std::ceil(index);
+                double lowerValue = data[lowerIndex];
+                double upperValue = data[upperIndex];
+                return lowerValue + (index - lowerIndex) * (upperValue - lowerValue);
+            }
+        }
+
+
         // This part is adapted from Open3D,
         // https://github.com/isl-org/Open3D/blob/main/cpp/open3d/geometry/PointCloud.cpp#L354-L400
         std::shared_ptr<Eigen::MatrixXd>
@@ -468,31 +488,64 @@ namespace tool {
     namespace visualize {
         void DrawPointClouds(const std::string &group_title,
                              const std::vector<std::pair<std::string, std::shared_ptr<Eigen::MatrixXd>>> &cloudsPairs) {
-            // Initialize
-            polyscope::init();
-            // A few camera options
-            polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-            polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-            polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-            // Create a group
-            polyscope::Group *group = polyscope::createGroup(group_title);
-            // Register the point clouds
-            for (int i = 0; i < cloudsPairs.size(); ++i) {
-                const std::string &cloudName = cloudsPairs[i].first;
-                const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
-                std::vector<geometrycentral::Vector3> points = utility::Matrix2GCVector(cloudMatrix);
-                polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
-                if (i == 0) {
-                    psCloud->setPointRadius(0.001);
-                } else {
-                    psCloud->setPointRadius(0.0015);
+            if (polyscope::isInitialized()) {
+                try {
+                    polyscope::getGroup(group_title);
+                } catch (std::runtime_error &e) {
+                    polyscope::createGroup(group_title);
                 }
-                psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
-                // Add point cloud to the group
-                psCloud->addToGroup(*group);
+                polyscope::Group *group = polyscope::getGroup(group_title);
+                for (int i = 0; i < cloudsPairs.size(); ++i) {
+                    const std::string &cloudName = cloudsPairs[i].first;
+                    const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
+                    std::vector<geometrycentral::Vector3> points = utility::Matrix2GCVector(cloudMatrix);
+                    polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
+                    if (cloudsPairs.size() > 1 && i == 0) {
+                        psCloud->setPointRadius(0.001);
+                    } else {
+                        psCloud->setPointRadius(0.0015);
+                    }
+                    psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
+                    // Add point cloud to the group
+                    psCloud->addToGroup(*group);
+                }
+                // Set some options
+                group->setEnabled(true);
+                group->setHideDescendantsFromStructureLists(true);
+                group->setShowChildDetails(true);
+            } else {
+                // Initialize
+                polyscope::init();
+                // Some options
+                polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+                polyscope::options::groundPlaneHeightFactor = 0.1;
+                polyscope::options::shadowDarkness = 0.3;
+                // A few camera options
+                polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+                polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+                polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+                // Create a group
+                polyscope::Group *group = polyscope::createGroup(group_title);
+                // Register the point clouds
+                for (int i = 0; i < cloudsPairs.size(); ++i) {
+                    const std::string &cloudName = cloudsPairs[i].first;
+                    const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
+                    std::vector<geometrycentral::Vector3> points = utility::Matrix2GCVector(cloudMatrix);
+                    polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
+                    if (cloudsPairs.size() > 1 && i == 0) {
+                        psCloud->setPointRadius(0.001);
+                    } else {
+                        psCloud->setPointRadius(0.0015);
+                    }
+                    psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
+                    // Add point cloud to the group
+                    psCloud->addToGroup(*group);
+                }
+                // Set some options
+                group->setEnabled(true);
+                group->setHideDescendantsFromStructureLists(true);
+                group->setShowChildDetails(true);
             }
-            // Set some options
-            group->setEnabled(true);
             // Show the GUI
             polyscope::show();
         }
@@ -505,6 +558,7 @@ namespace tool {
             polyscope::init();
             // Some options
             polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+            polyscope::options::groundPlaneHeightFactor = 0.1;
             polyscope::options::shadowDarkness = 0.3;
             // A few camera options
             polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
@@ -532,6 +586,7 @@ namespace tool {
             polyscope::init();
             // Some options
             polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+            polyscope::options::groundPlaneHeightFactor = 0.1;
             polyscope::options::shadowDarkness = 0.3;
             // A few camera options
             polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
@@ -545,6 +600,146 @@ namespace tool {
             polyscope::registerSurfaceMesh(title, gc_geom->positions, gc_geom->tuftedMesh->getFaceVertexList());
             // Show the GUI
             polyscope::show();
+        }
+
+
+        void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr,
+                               const int k, const int center_index) {
+            std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_cloudPtr = std::make_shared<geometrycentral::pointcloud::PointCloud>(
+                    cloudPtr->rows());
+            std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_geom = std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(
+                    *gc_cloudPtr);
+            std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2GCVector(cloudPtr);
+            for (int i = 0; i < cloudPtr->rows(); ++i) {
+                gc_geom->positions[i] = vertices_positions[i];
+            }
+            gc_geom->kNeighborSize = k;
+
+
+            // Prepare data
+            gc_geom->requireNeighbors();
+            gc_geom->requireTangentBasis();
+            gc_geom->requireTangentCoordinates();
+            std::vector<geometrycentral::pointcloud::Point> neigh = gc_geom->neighbors->neighbors[center_index];
+            std::vector<geometrycentral::Vector3> neigh_points;
+            neigh_points.reserve(neigh.size());
+            for (const geometrycentral::pointcloud::Point &point: neigh) {
+                neigh_points.emplace_back(gc_geom->positions[point.getIndex()]);
+            }
+
+
+            std::vector<geometrycentral::Vector2> tangentCoords = gc_geom->tangentCoordinates[center_index];
+            std::vector<geometrycentral::Vector3> origin;
+            origin.emplace_back(geometrycentral::Vector3{0.0, 0.0, 0.0});
+
+
+            geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint = geometrycentral::pointcloud::buildLocalTriangulations(
+                    *gc_cloudPtr, *gc_geom, true);
+            std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
+            std::vector<std::vector<size_t>> tris;
+            tris.reserve(localTri.size());
+            for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
+                std::vector<size_t> temp;
+                temp.reserve(tri.size());
+                for (const geometrycentral::pointcloud::Point &point: tri) {
+                    temp.emplace_back(point.getIndex());
+                }
+                tris.emplace_back(temp);
+            }
+            std::vector<geometrycentral::Vector3> new_points;
+            geometrycentral::Vector3 center = gc_geom->positions[center_index];
+            geometrycentral::Vector3 normal = gc_geom->normals[center_index];
+            geometrycentral::Vector3 basisX = gc_geom->tangentBasis[center_index][0];
+            geometrycentral::Vector3 basisY = gc_geom->tangentBasis[center_index][1];
+            for (size_t iN = 0; iN < gc_geom->positions.size(); iN++) {
+                geometrycentral::Vector3 vec = gc_geom->positions[iN] - center;
+                vec = vec.removeComponent(normal);
+                geometrycentral::Vector3 coord{dot(basisX, vec), dot(basisY, vec), 0.0};
+                new_points.push_back(coord);
+            }
+            std::vector<geometrycentral::Vector3> new_neigh_points;
+            new_neigh_points.reserve(neigh.size());
+            for (const geometrycentral::pointcloud::Point &point: neigh) {
+                new_neigh_points.emplace_back(new_points[point.getIndex()]);
+            }
+
+
+            gc_geom->requireTuftedTriangulation();
+            std::vector<std::vector<size_t>> tufted_tri;
+            for (const std::vector<size_t>& tri : gc_geom->tuftedMesh->getFaceVertexList()) {
+                for (size_t vertex : tri) {
+                    if (vertex == center_index) {
+                        tufted_tri.push_back(tri);
+                    }
+                }
+            }
+
+
+            // Initialize
+            polyscope::init();
+            // Some options
+            polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+            polyscope::options::groundPlaneHeightFactor = -0.760f;
+            polyscope::options::shadowDarkness = 0.5;
+            // A few camera options
+            polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+            polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+            polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+            polyscope::Group *group = polyscope::createGroup(title);
+            // Register
+
+//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", vertices_positions);
+//            psCloud_1->setPointRadius(0.0005);
+//            psCloud_1->setPointColor(glm::vec3(145.0/255.0, 146.0/255.0, 145.0/255.0));
+//            psCloud_1->addToGroup(*group);
+//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", std::vector<geometrycentral::Vector3>{vertices_positions[center_index]});
+//            psCloud_2->setPointRadius(0.0010);
+//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+//            psCloud_2->addToGroup(*group);
+//            polyscope::PointCloud *psCloud_3 = polyscope::registerPointCloud("pc_3", neigh_points);
+//            psCloud_3->setPointRadius(0.0010);
+//            psCloud_3->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+//            psCloud_3->addToGroup(*group);
+
+//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud2D("pc_1", tangentCoords);
+//            psCloud_1->setPointRadius(0.001);
+//            psCloud_1->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+//            psCloud_1->addToGroup(*group);
+//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud2D("pc_2", origin);
+//            psCloud_2->setPointRadius(0.001);
+//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+//            psCloud_2->addToGroup(*group);
+//
+//            polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
+//            psMesh_1->setEdgeWidth(2.0);
+//            psMesh_1->setTransparency(0.5);
+//            psMesh_1->addToGroup(*group);
+//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
+//            psCloud_1->setPointRadius(0.0005);
+//            psCloud_1->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+//            psCloud_1->addToGroup(*group);
+//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
+//            psCloud_2->setPointRadius(0.0005);
+//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+//            psCloud_2->addToGroup(*group);
+//
+            polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", gc_geom->positions, tufted_tri);
+            psMesh_1->setEdgeWidth(2.0);
+            psMesh_1->setTransparency(0.85);
+            psMesh_1->addToGroup(*group);
+            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", neigh_points);
+            psCloud_1->setPointRadius(0.0005);
+            psCloud_1->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+            psCloud_1->addToGroup(*group);
+            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", std::vector<geometrycentral::Vector3>{vertices_positions[center_index]});
+            psCloud_2->setPointRadius(0.0005);
+            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+            psCloud_2->addToGroup(*group);
+
+            // Show the GUI
+            std::string myString = polyscope::view::getViewAsJson();
+            polyscope::show();
+            std::cout << "--------------------------------------------------" << std::endl;
         }
     }
 

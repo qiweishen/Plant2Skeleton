@@ -85,7 +85,7 @@ public:
         S_Ptr_(std::make_shared<Eigen::VectorXd>(cloudPtr->points_.size())),
         WS_Ptr_(std::make_shared<Eigen::VectorXd>(cloudPtr->points_.size())),
         WH_Ptr_(std::make_shared<Eigen::VectorXd>(cloudPtr->points_.size())),
-        sL_(1.0),
+        sL_(3.0),
         sigma_(cloudPtr_->points_.size(), 0.0), // TODO: transform to Pointer
         smooth_sigma_(cloudPtr_->points_.size(), 0.0), // TODO: transform to Pointer
         iteration_time_(50) {}

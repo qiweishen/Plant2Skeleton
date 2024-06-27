@@ -5,10 +5,12 @@
 #include "Skeleton.h"
 #include "Graph.h"
 
+#include "geometrycentral/utilities/vector2.h"
 #include "geometrycentral/utilities/vector3.h"
 #include "geometrycentral/utilities/knn.h"
 #include "geometrycentral/pointcloud/local_triangulation.h"
 
+#include "polyscope/polyscope.h"
 #include "polyscope/point_cloud.h"
 #include "polyscope/surface_mesh.h"
 
@@ -112,6 +114,12 @@ namespace tool {
 
 
         /**
+         TODO: Add description
+         */
+        double Compute95thPercentile(const Eigen::VectorXd &vec);
+
+
+        /**
          * @brief Down-sample the point cloud.
          * @tparam T The type of the point cloud, can be Eigen::MatrixXd or open3d::geometry::o3d_PointCloud.
          * @param cloudPtr The smart pointer to the point cloud.
@@ -173,6 +181,13 @@ namespace tool {
          */
         void DrawTuftedMesh(const std::string &title,
                             const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
+
+
+        /**
+         *
+         */
+        void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr,
+                              const int k, const int center_index);
     }
 
 

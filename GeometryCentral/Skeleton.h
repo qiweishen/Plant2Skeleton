@@ -15,8 +15,13 @@
 #include <Eigen/Dense>
 #include <Eigen/src/Eigenvalues/SelfAdjointEigenSolver.h>
 
-#include "../deps/geometry-central/include/geometrycentral/pointcloud/point_cloud.h"
-#include "../deps/geometry-central/include/geometrycentral/pointcloud/point_position_geometry.h"
+#include "geometrycentral/pointcloud/point_cloud.h"
+#include "geometrycentral/pointcloud/point_position_geometry.h"
+#include "geometrycentral/surface/edge_length_geometry.h"
+#include "geometrycentral/surface/halfedge_factories.h"
+#include "geometrycentral/surface/intrinsic_mollification.h"
+#include "geometrycentral/surface/simple_idt.h"
+#include "geometrycentral/surface/tufted_laplacian.h"
 
 
 class Skeleton {
@@ -29,6 +34,7 @@ public:
             diagonal_length_(diagonal_length),
             output_path_(std::move(output_path)),
             L_Ptr_(std::make_shared<Eigen::SparseMatrix<double>>(cloudPtr->rows(), cloudPtr->rows())),
+            S_Ptr_(std::make_shared<Eigen::MatrixXd>(cloudPtr->rows(), 3)),
             WL_Ptr_(std::make_shared<Eigen::VectorXd>(cloudPtr->rows())),
             WH_Ptr_(std::make_shared<Eigen::VectorXd>(cloudPtr->rows())),
             sigmaPtr_(std::make_shared<std::vector<double>>(cloudPtr->rows())),
@@ -53,20 +59,25 @@ private:
     double sL_ = 1.0;
 
     int pts_num_ = static_cast<int>(cloudPtr_->rows());
+    double threshold_edge_length_ = -1.0;
     std::vector<double> faces_area_;
     std::shared_ptr<Eigen::SparseMatrix<double>> L_Ptr_;
+    std::shared_ptr<Eigen::MatrixXd> S_Ptr_;
     std::shared_ptr<Eigen::VectorXd> WL_Ptr_;
     std::shared_ptr<Eigen::VectorXd> WH_Ptr_;
 
     std::shared_ptr<std::vector<double>> sigmaPtr_;
     std::shared_ptr<std::vector<double>> smooth_sigmaPtr_;
 
-    void EstablishLaplacianMatrix(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr);
     void InitializeParameters(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr);
+    void EstablishLaplacianMatrix(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr);
+    void FindThresholdEdge(std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr, std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
+    void IgnoreLargeFaces(std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr, std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
+    void EstablishSpringEnergy(const std::shared_ptr<Eigen::MatrixXd> &ptsPtr, int neighbors, const double spring_constant, const double spring_length);
     Eigen::MatrixXd LaplacianContraction(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr);
+    void GetMeanVertexDualArea(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr);
     void ComputeSigma(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, const std::string &neighborhood);
     void UpdateKNeighbors();
-    void GetMeanVertexDualArea(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr);
     std::shared_ptr<Eigen::MatrixXd> ContractionIteration();
 };
 

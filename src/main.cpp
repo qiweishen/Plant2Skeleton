@@ -11,7 +11,7 @@ int main() {
     for (const std::string &file_name: file_names) {
 //        std::string file_path = "../data/labelled_binary/" + file_name + ".ply";
         std::string file_path = "../../data/Skeleton/" + file_name + "/" + file_name + "_Downsampled.ply";
-        std::string folder_path = "../../data/Skeleton/" + file_name + "/" + "Current_WeightedPCAProjection-2" + "/";
+        std::string folder_path = "../../data/Skeleton/" + file_name + "/" + "New" + "/";
         if (std::filesystem::exists(folder_path)) {
             std::filesystem::remove_all(folder_path);
         }
@@ -35,43 +35,47 @@ int main() {
 
 
         // Laplacian-based contraction
-        Skeleton skeleton(cloudPtr, 8, 0.95, 1.6, folder_path + file_name);
-        std::shared_ptr<PointCloud> skeletonPtr = skeleton.GetLaplacianSkeleton();
+//        Skeleton skeleton(cloudPtr, 30, 0.95, 1.6, folder_path + file_name);
+//        std::shared_ptr<PointCloud> skeletonPtr = skeleton.GetLaplacianSkeleton();
 //        tool::io::SavePointCloudToPLY(folder_path + file_name + "_PCA_knn.ply", skeletonPtr, _, __);
 //
 //
-//        // Down-sample the skeleton
-//        std::shared_ptr<PointCloud> skeleton_points_cloudPtr = skeletonPtr->VoxelDownSample(0.01 * 1.6);
-//
-//
-//        // LOP to calibrate the down-sampled skeleton
-//        std::shared_ptr<PointCloud> final_skeleton_points_cloudPtr = LOPIterate(cloudPtr, skeleton_points_cloudPtr);
-//        tool::io::SavePointCloudToPLY(folder_path + file_name + "_LOP.ply", final_skeleton_points_cloudPtr, _, __);
+        std::shared_ptr<PointCloud> skeletonPtr = std::make_shared<PointCloud>();
+        tool::io::LoadPointCloudFromPLY("../../data/Skeleton/C20-2/TuftedMeshLaplacian-2/C20-2_cpts_9.ply", skeletonPtr, __, ___);
+        // Down-sample the skeleton
+        std::shared_ptr<PointCloud> skeleton_points_cloudPtr = skeletonPtr->VoxelDownSample(0.005 * 1.6);
 
 
-//        // Compute MST
-//        Graph graph(final_skeleton_points_cloudPtr, 1.6);
-//        std::shared_ptr<Boost_Graph> skeleton_mst_graphPtr = graph.GetMST();
-//
-//
-//        // Prune the MST
-//        std::shared_ptr<Boost_Graph> skeleton_mst_pruned_graphPtr = graph.GetPrunedMST();
-//        tool::io::SaveGraphToPLY(folder_path + file_name + "_Skeleton_MST.ply", skeleton_mst_pruned_graphPtr);
+        // LOP to calibrate the down-sampled skeleton
+        std::shared_ptr<PointCloud> final_skeleton_points_cloudPtr = LOPIterate(cloudPtr, skeleton_points_cloudPtr);
+        std::shared_ptr<Eigen::MatrixXd> ____ = std::make_shared<Eigen::MatrixXd>();
+        std::vector<std::pair<std::string, std::string>> _____;
+        tool::io::SavePointCloudToPLY(folder_path + file_name + "_LOP.ply", final_skeleton_points_cloudPtr, ____, _____);
 
 
-//        // Segment the skeleton
-//        std::vector<std::vector<Boost_Vertex>> classes = graph.SegmentSkeleton();
-//
-//
-//        // Retrieve the points
-//        std::vector<std::vector<int>> estimated_labels = tool::utility::RetrievePoints(classes, skeleton_mst_pruned_graphPtr, cloudPtr);
-//        std::ofstream result_file(folder_path + file_name + "_result.xyz");
-//        for (int i = 0; i < estimated_labels.size(); ++i) {
-//            for (const int &index : estimated_labels[i]) {
-//                result_file << index << " " << cloudPtr->points_[index][0] << " " << cloudPtr->points_[index][1] << " " << cloudPtr->points_[index][2] << " " << i << std::endl;
-//            }
-//        }
-//        result_file.close();
+        // Compute MST
+        Graph graph(final_skeleton_points_cloudPtr, 1.6);
+        std::shared_ptr<Boost_Graph> skeleton_mst_graphPtr = graph.GetMST();
+
+
+        // Prune the MST
+        std::shared_ptr<Boost_Graph> skeleton_mst_pruned_graphPtr = graph.GetPrunedMST();
+        tool::io::SaveGraphToPLY(folder_path + file_name + "_Skeleton_MST.ply", skeleton_mst_pruned_graphPtr);
+
+
+        // Segment the skeleton
+        std::vector<std::vector<Boost_Vertex>> classes = graph.SegmentSkeleton();
+
+
+        // Retrieve the points
+        std::vector<std::vector<int>> estimated_labels = tool::utility::RetrievePoints(classes, skeleton_mst_pruned_graphPtr, cloudPtr);
+        std::ofstream result_file(folder_path + file_name + "_result.xyz");
+        for (int i = 0; i < estimated_labels.size(); ++i) {
+            for (const int &index : estimated_labels[i]) {
+                result_file << index << " " << cloudPtr->points_[index][0] << " " << cloudPtr->points_[index][1] << " " << cloudPtr->points_[index][2] << " " << i << std::endl;
+            }
+        }
+        result_file.close();
     }
 
 
