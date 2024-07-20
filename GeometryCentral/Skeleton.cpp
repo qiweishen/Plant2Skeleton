@@ -1,8 +1,13 @@
 #include "Skeleton.h"
 #include "Tools.h"
 
+#include "geometrycentral/pointcloud/point_cloud_heat_solver.h"
+
 
 void Skeleton::InitializeParameters(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
+    // Initialize Laplacian matrix
+    EstablishLaplacianMatrix(cloudPtr);
+
     auto start = std::chrono::high_resolution_clock::now();
 
     WL_Ptr_->resize(pts_num_);
@@ -11,16 +16,13 @@ void Skeleton::InitializeParameters(const std::shared_ptr<Eigen::MatrixXd> &clou
     // Initialize WL, WH
     WL_Ptr_->fill(initial_WL_);
     WH_Ptr_->fill(initial_WH_);
+    for (int tip_index: tip_indices_) {
+        WH_Ptr_->coeffRef(tip_index) = 9.0; // TODO: Adjust the value
+    }
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
     std::cout << "Weight matrices have been initialized! Elapsed time: " << elapsed.count() << "s" << std::endl;
-
-    // Initialize Laplacian matrix
-    EstablishLaplacianMatrix(cloudPtr);
-
-    // Initialize Spring energy
-    EstablishSpringEnergy(cloudPtr, 4, 3.0, 0.0015 * diagonal_length_);
 }
 
 
@@ -40,23 +42,65 @@ void Skeleton::EstablishLaplacianMatrix(const std::shared_ptr<Eigen::MatrixXd> &
     gc_geom->kNeighborSize = k_neighbors_;
 
 
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-//    tool::visualize::DrawUnionLocalTriangles("Union Local Triangles", gc_cloudPtr, gc_geom);
-    tool::visualize::DrawTuftedMesh("Tufted Mesh", gc_geom);
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-
-
-    // No need to IgnoreLargeFaces at first, since the k_neighbors_ is small
+    // Find the lowest vertex index
+    // TODO: Set a FLAG
     if (threshold_edge_length_ < 0.0) {
-        FindThresholdEdge(gc_cloudPtr, gc_geom);
+        Eigen::VectorXd z_values = cloudPtr->col(2);
+        int min_index;
+        z_values.minCoeff(&min_index);
+        geometrycentral::pointcloud::PointCloudHeatSolver solver(*gc_cloudPtr, *gc_geom);
+        geometrycentral::pointcloud::Point pSource = gc_cloudPtr->point(min_index);
+        geometrycentral::pointcloud::PointData<double> distance = solver.computeDistance(pSource);
+        std::vector<std::vector<size_t>> neighbors_indices;
+        neighbors_indices = tool::utility::KNNSearch(cloudPtr, k_neighbors_);
+        tip_indices_.clear();
+        tip_indices_.emplace_back(min_index);
+        for (int i = 0; i < pts_num_; ++i) {
+            double center_value = distance[i];
+            std::vector<double> neighbor_values;
+            for (const size_t &index: neighbors_indices[i]) {
+                neighbor_values.emplace_back(distance[index]);
+            }
+            double max_neighbor_value = *std::max_element(neighbor_values.begin(), neighbor_values.end());
+            if (center_value > max_neighbor_value) {
+                tip_indices_.emplace_back(i);
+            }
+        }
+
+
+        // --------------------------------------------------------------------------
+        // Debug
+        // --------------------------------------------------------------------------
+//        // For visualization
+//        std::shared_ptr<Eigen::MatrixXd> tip_points = std::make_shared<Eigen::MatrixXd>(tip_indices_.size(), 3);
+//        for (int i = 0; i < tip_indices_.size(); ++i) {
+//            tip_points->row(i) = cloudPtr->row(tip_indices_[i]);
+//        }
+//        tool::visualize::DrawPointClouds("Cloud", {{"Vertex", cloudPtr}});
+//        polyscope::getPointCloud("Vertex")->addScalarQuantity("geodesic distance", distance);
+//        tool::visualize::DrawPointClouds("Tip Points", {{"Tip", tip_points}});
+        // --------------------------------------------------------------------------
+        // Debug
+        // --------------------------------------------------------------------------
+
+
+    }
+
+
+    // --------------------------------------------------------------------------
+    // Debug
+    // --------------------------------------------------------------------------
+//    tool::visualize::DrawTuftedMesh("Tufted Mesh", gc_geom);
+    // --------------------------------------------------------------------------
+    // Debug
+    // --------------------------------------------------------------------------
+
+
+    // No need to CollapseLargeFaces at first, since the k_neighbors_ is small
+    if (threshold_edge_length_ < 0.0) {
+        FindEdgeThreshold(gc_cloudPtr, gc_geom);
     } else {
-        IgnoreLargeFaces(gc_cloudPtr, gc_geom);
-        tool::visualize::DrawPointClouds("Cloud", {{"Skeleton", cloudPtr}});
-        tool::visualize::DrawTuftedMesh("Tufted Mesh - After Face Ignore", gc_geom);
+        CollapseEdges(gc_cloudPtr, gc_geom);
     }
 
 
@@ -79,7 +123,7 @@ void Skeleton::EstablishLaplacianMatrix(const std::shared_ptr<Eigen::MatrixXd> &
 }
 
 
-void Skeleton::FindThresholdEdge(std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+void Skeleton::FindEdgeThreshold(std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
                                  std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -97,9 +141,15 @@ void Skeleton::FindThresholdEdge(std::shared_ptr<geometrycentral::pointcloud::Po
     std::unique_ptr<geometrycentral::surface::VertexPositionGeometry> temp_geom;
     std::tie(temp_mesh, temp_geom) = geometrycentral::surface::makeSurfaceMeshAndGeometry(all_tris, pos_raw);
     temp_geom->requireEdgeLengths();
-    Eigen::VectorXd edge_lengths = temp_geom->edgeLengths.toVector();
-    // Compute the 95th percentile of the edge lengths
-    threshold_edge_length_ = tool::utility::Compute95thPercentile(edge_lengths);
+    Eigen::VectorXd edges_lengths = temp_geom->edgeLengths.toVector();
+    std::vector<double> edges_lengths_vec(edges_lengths.data(), edges_lengths.data() + edges_lengths.size());
+    // Find the long edges
+    std::vector<int> indices = tool::utility::FindUpperOutlierBySTD(edges_lengths_vec);
+    Eigen::VectorXd long_edges_lengths = Eigen::VectorXd::Zero(indices.size());
+    for (int i = 0; i < indices.size(); ++i) {
+        long_edges_lengths[i] = edges_lengths[indices[i]];
+    }
+    threshold_edge_length_ = long_edges_lengths.minCoeff();
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -107,53 +157,97 @@ void Skeleton::FindThresholdEdge(std::shared_ptr<geometrycentral::pointcloud::Po
 }
 
 
-void Skeleton::IgnoreLargeFaces(std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
-                                std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
+void Skeleton::CollapseEdges(std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+                             std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
     auto start = std::chrono::high_resolution_clock::now();
 
+    // Initialize the tuftedMesh and tuftedGeom
     std::unique_ptr<geometrycentral::surface::SurfaceMesh> tuftedMesh;
     std::unique_ptr<geometrycentral::surface::EdgeLengthGeometry> tuftedGeom;
+
     // Generate the local triangles
     geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> local_tri_point = geometrycentral::pointcloud::buildLocalTriangulations(
             *gc_cloudPtr, *gc_geom, true);
+
     // Make a union of local triangles
     std::vector<std::vector<size_t>> all_tris = handleToFlatInds(*gc_cloudPtr, local_tri_point);
     std::vector<geometrycentral::Vector3> pos_raw(gc_cloudPtr->nPoints());
+#pragma omp parallel for
     for (size_t iP = 0; iP < pos_raw.size(); iP++) {
         pos_raw[iP] = gc_geom->positions[iP];
     }
+
     // Make a mesh for edge collapse detection
     std::unique_ptr<geometrycentral::surface::SurfaceMesh> temp_mesh;
     std::unique_ptr<geometrycentral::surface::VertexPositionGeometry> temp_geom;
     std::tie(temp_mesh, temp_geom) = geometrycentral::surface::makeSurfaceMeshAndGeometry(all_tris, pos_raw);
 
+    // Find the Edge to be collapsed, and its adjacent faces
     temp_geom->requireEdgeLengths();
     geometrycentral::surface::EdgeData<double> edge_lengths = temp_geom->edgeLengths;
-    // Find the Face to ignore
-    std::vector<std::vector<size_t>> ignore_faces;
-    for (geometrycentral::surface::Edge e : temp_mesh->edges()) {
-        if (edge_lengths[e] > threshold_edge_length_) {
-            for (geometrycentral::surface::Face f : e.adjacentFaces()) {
-                std::vector<size_t> face;
-                for (geometrycentral::surface::Vertex v : f.adjacentVertices()) {
-                    face.emplace_back(v.getIndex());
+    std::vector<std::vector<size_t>> faces_to_ignore;
+#pragma omp parallel for
+    for (size_t i = 0; i < temp_mesh->nVertices(); i++) {
+        geometrycentral::surface::Vertex vert = temp_mesh->vertex(i);
+        std::vector<geometrycentral::surface::Edge> adjacent_edges;
+        std::vector<double> adjacent_edges_length;
+        for (geometrycentral::surface::Edge e: vert.adjacentEdges()) {
+            adjacent_edges.emplace_back(e);
+            adjacent_edges_length.emplace_back(edge_lengths[e]);
+        }
+        std::vector<int> edge_indices;
+        for (int j = 0; j < adjacent_edges_length.size(); ++j) {
+            if (adjacent_edges_length[j] >= threshold_edge_length_) {
+                edge_indices.emplace_back(j);
+            }
+        }
+        if (edge_indices.empty()) {
+            continue;
+        } else {
+            for (int edge_index: edge_indices) {
+                geometrycentral::surface::Edge edge = adjacent_edges[edge_index];
+                // Mark the faces that consist of the long edge
+                for (geometrycentral::surface::Face f: edge.adjacentFaces()) {
+                    std::vector<size_t> face;
+                    for (geometrycentral::surface::Vertex v: f.adjacentVertices()) {
+                        face.emplace_back(v.getIndex());
+                    }
+#pragma omp critical
+                    {
+                        faces_to_ignore.emplace_back(face);
+                    }
                 }
-                ignore_faces.emplace_back(face);
             }
         }
     }
-    // Remove the ignore faces (contains duplicate faces)
-    for (const std::vector<size_t> &face: ignore_faces) {
-        all_tris.erase(std::remove(all_tris.begin(), all_tris.end(), face), all_tris.end());
-    }
 
-    // Check for the unreferenced vertices
+    // Remove the ignored faces
+    std::unordered_set<std::vector<size_t>, VectorHash> ignore_set(faces_to_ignore.begin(), faces_to_ignore.end());
+    all_tris.erase(std::remove_if(all_tris.begin(), all_tris.end(),
+                                  [&ignore_set](const std::vector<size_t> &face) {
+                                      return ignore_set.find(face) != ignore_set.end();
+                                  }), all_tris.end());
+
+    // Check for unreferenced vertices
     size_t max_index = pos_raw.size();
     std::vector<bool> referenced(max_index, false);
-    for (const std::vector<size_t>& tri : all_tris) {
-        for (size_t vertex : tri) {
-            if (vertex < max_index) {
-                referenced[vertex] = true;
+#pragma omp parallel
+    {
+        std::vector<bool> local_referenced(max_index, false);
+#pragma omp for nowait
+        for (const std::vector<size_t> &tri: all_tris) {
+            for (size_t vert_idx: tri) {
+                if (vert_idx < max_index) {
+                    local_referenced[vert_idx] = true;
+                }
+            }
+        }
+#pragma omp critical
+        {
+            for (size_t i = 0; i < max_index; ++i) {
+                if (local_referenced[i]) {
+                    referenced[i] = true;
+                }
             }
         }
     }
@@ -163,30 +257,16 @@ void Skeleton::IgnoreLargeFaces(std::shared_ptr<geometrycentral::pointcloud::Poi
             unreferenced_vertices.push_back(i);
         }
     }
-    // How to deal with the unreferenced vertices? Remove? Or build a triangle with two nearest vertices?
+
+    // Build a triangle with two nearest vertices to deal with the unreferenced vertices
     if (!unreferenced_vertices.empty()) {
         geometrycentral::NearestNeighborFinder finder(pos_raw);
-        for (size_t vertex : unreferenced_vertices) {
+        for (size_t vertex: unreferenced_vertices) {
             std::vector<size_t> nearest_indices = finder.kNearestNeighbors(vertex, 2);
             std::vector<size_t> nearest_triangle = {vertex, nearest_indices[0], nearest_indices[1]};
             all_tris.emplace_back(nearest_triangle);
         }
     }
-
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-//    polyscope::init();
-//    polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-//    polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-//    polyscope::registerPointCloud("Original", tool::utility::Matrix2GCVector(cloudPtr_));
-//    polyscope::registerPointCloud("Debug-Pos", pos_raw);
-//    polyscope::registerSurfaceMesh("Debug-Tris", pos_raw, all_tris);
-//    polyscope::show();
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-
 
     // Make a mesh, read off its
     std::unique_ptr<geometrycentral::surface::VertexPositionGeometry> posGeom;
@@ -200,7 +280,6 @@ void Skeleton::IgnoreLargeFaces(std::shared_ptr<geometrycentral::pointcloud::Poi
     flipToDelaunay(*tuftedMesh, tuftedEdgeLengths);
     // Create the geometry object
     tuftedGeom.reset(new geometrycentral::surface::EdgeLengthGeometry(*tuftedMesh, tuftedEdgeLengths));
-
     // Set tuftedTriangulationQ.require() to true
     gc_geom->requireTuftedTriangulation();
     // Replace the tuftedMesh and tuftedGeom
@@ -209,72 +288,106 @@ void Skeleton::IgnoreLargeFaces(std::shared_ptr<geometrycentral::pointcloud::Poi
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Large faces have been ignored! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    std::cout << "Large faces have been ignored! Final Stage Elapsed time: " << elapsed.count() << "s" << std::endl;
 }
 
+std::tuple<Eigen::SparseMatrix<double>, Eigen::MatrixXd>
+Skeleton::LengthConstraint(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
+    // Initialize PointCloud and Geometry
+    auto gc_cloudPtr = std::make_shared<geometrycentral::pointcloud::PointCloud>(pts_num_);
+    auto gc_geom = std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_cloudPtr);
 
-void Skeleton::EstablishSpringEnergy(const std::shared_ptr<Eigen::MatrixXd> &ptsPtr, int neighbors,
-                                     const double spring_constant, const double spring_length) {
-    auto start = std::chrono::high_resolution_clock::now();
-
-    S_Ptr_->setZero();
-
-    std::vector<std::vector<size_t>> neighbors_indices;
-    neighbors_indices = tool::utility::KNNSearch(ptsPtr, size_t(neighbors));
-
+    // Convert and set vertex positions
+    std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2GCVector(cloudPtr);
     for (int i = 0; i < pts_num_; ++i) {
-        Eigen::Vector3d query_point = ptsPtr->row(i);
-        std::vector<size_t> indices = neighbors_indices[i];
+        gc_geom->positions[i] = vertices_positions[i];
+    }
+    gc_geom->kNeighborSize = 4;
+    gc_geom->requireLaplacian();
+    gc_geom->tuftedGeom->requireEdgeLengths();
 
-        Eigen::Vector3d force = Eigen::Vector3d::Zero();
-        for (const size_t &index: indices) {
-            Eigen::Vector3d a = ptsPtr->row(int(index));
-            Eigen::Vector3d query_a = a - query_point;
-            double distance = query_a.norm();
-            if (distance > spring_length) {
-                Eigen::Vector3d direction = query_a.normalized();
-                force += spring_constant * std::abs(distance - spring_length) * direction;
+    Eigen::VectorXd edge_lengths = gc_geom->tuftedGeom->edgeLengths.toVector();
+
+    // Find edges and their constraints
+    std::vector<std::pair<int, int>> edges;
+    std::vector<geometrycentral::Vector3> constraint_lengths;
+    Eigen::SparseMatrix<double> laplacian = gc_geom->laplacian;
+
+    for (int k = 0; k < laplacian.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(laplacian, k); it; ++it) {
+            if (it.row() < it.col()) { // Process each edge once
+                geometrycentral::Vector3 point_i = gc_geom->positions[it.row()];
+                geometrycentral::Vector3 point_j = gc_geom->positions[it.col()];
+                double distance = (point_i - point_j).norm();
+
+                if (distance > 0.005 * diagonal_length_) {
+                    geometrycentral::Vector3 e_i_j = (0.005 * diagonal_length_ / distance) * (point_i - point_j);
+                    constraint_lengths.emplace_back(e_i_j);
+                } else {
+                    geometrycentral::Vector3 e_i_j = (1.0) * (point_i - point_j);
+                    constraint_lengths.emplace_back(e_i_j);
+                }
+                edges.emplace_back(it.row(), it.col());
             }
         }
-        S_Ptr_->row(i) = force;
     }
 
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Spring system has been established! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    // Convert constraint lengths to Eigen::MatrixXd
+    Eigen::MatrixXd e(edges.size(), 3);
+    for (size_t i = 0; i < edges.size(); ++i) {
+        e.row(int(i)) = Eigen::Vector3d {constraint_lengths[i].x, constraint_lengths[i].y, constraint_lengths[i].z};
+    }
+
+    // Create edge matrix H
+    Eigen::SparseMatrix<double> H(edges.size(), pts_num_);
+    std::vector<Eigen::Triplet<double>> tripletList;
+    for (size_t i = 0; i < edges.size(); ++i) {
+        tripletList.emplace_back(i, edges[i].first, 1.0);
+        tripletList.emplace_back(i, edges[i].second, -1.0);
+    }
+    H.setFromTriplets(tripletList.begin(), tripletList.end());
+
+    return std::make_tuple(H, e);
 }
 
 
+// TODO: Return std::shared_ptr<Eigen::MatrixXd>
 Eigen::MatrixXd Skeleton::LaplacianContraction(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
     auto start = std::chrono::high_resolution_clock::now();
 
+    Eigen::SparseMatrix<double> H;
+    Eigen::MatrixXd e;
+    std::tie(H, e) = LengthConstraint(cloudPtr);
+
     // Construct the matrix A (3pts_num_ x pts_num_) { A = [L.*WL; sparse(1:P.npts, 1:P.npts, S); sparse(1:P.npts, 1:P.npts, WH)]; }
-//    Eigen::VectorXd threes = Eigen::VectorXd(pts_num_);
-//    threes.fill(3.0);
     std::vector<Eigen::Triplet<double>> A_tripletList;
     for (int i = 0; i < pts_num_; ++i) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(*L_Ptr_, i); it; ++it) {
             double value = it.value() * WL_Ptr_->coeffRef(it.row());
             A_tripletList.emplace_back(it.row(), it.col(), value);
         }
-//        A_tripletList.emplace_back(pts_num_ + i, i, threes.coeffRef(i));
         A_tripletList.emplace_back(pts_num_ + i, i, WH_Ptr_->coeffRef(i));
     }
-    Eigen::SparseMatrix<double> A(2 * pts_num_, pts_num_);
+    for (int i = 0; i < H.outerSize(); ++i) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(H, i); it; ++it) {
+            double value = it.value() * 9.0;
+            A_tripletList.emplace_back(2 * pts_num_ + it.row(), it.col(), value);
+        }
+    }
+    Eigen::SparseMatrix<double> A(2 * pts_num_ + H.rows(), pts_num_);
     A.setFromTriplets(A_tripletList.begin(), A_tripletList.end());
 
     // Construct vector b (2pts_num_ x 3) { b = [zeros(P.npts, 3); zeros(P.npts, 3); sparse(1:P.npts, 1:P.npts, WH)*P.pts]; }
     Eigen::MatrixXd zeros = Eigen::MatrixXd::Zero(pts_num_, 3);
-//    Eigen::MatrixXd SP = threes.asDiagonal() * ((*cloudPtr) + (*S_Ptr_));
     Eigen::MatrixXd WHP = WH_Ptr_->asDiagonal() * (*cloudPtr);
-    Eigen::MatrixXd b(2 * pts_num_, 3);
-//    b << zeros, SP, WHP;
-    b << zeros, WHP;
+    e = 9.0 * e;
+    Eigen::MatrixXd b(2 * pts_num_ + e.rows(), 3);
+    b << zeros, WHP, e;
 
     // Solve the linear system
     Eigen::SparseMatrix<double> ATA = A.transpose() * A;
     Eigen::MatrixXd ATb = A.transpose() * b;
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+    Eigen::SimplicialCholesky<Eigen::SparseMatrix<double>> solver;
     solver.compute(ATA);
     if (solver.info() != Eigen::Success) {
         std::cerr << "Error: Eigen decomposition failed!" << std::endl;
@@ -288,6 +401,46 @@ Eigen::MatrixXd Skeleton::LaplacianContraction(const std::shared_ptr<Eigen::Matr
 
     return cpts;
 }
+
+// TODO: Return std::shared_ptr<Eigen::MatrixXd>
+//Eigen::MatrixXd Skeleton::LaplacianContraction(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
+//    auto start = std::chrono::high_resolution_clock::now();
+//
+//    // Construct the matrix A (3pts_num_ x pts_num_) { A = [L.*WL; sparse(1:P.npts, 1:P.npts, S); sparse(1:P.npts, 1:P.npts, WH)]; }
+//    std::vector<Eigen::Triplet<double>> A_tripletList;
+//    for (int i = 0; i < pts_num_; ++i) {
+//        for (Eigen::SparseMatrix<double>::InnerIterator it(*L_Ptr_, i); it; ++it) {
+//            double value = it.value() * WL_Ptr_->coeffRef(it.row());
+//            A_tripletList.emplace_back(it.row(), it.col(), value);
+//        }
+//        A_tripletList.emplace_back(pts_num_ + i, i, WH_Ptr_->coeffRef(i));
+//    }
+//    Eigen::SparseMatrix<double> A(2 * pts_num_, pts_num_);
+//    A.setFromTriplets(A_tripletList.begin(), A_tripletList.end());
+//
+//    // Construct vector b (2pts_num_ x 3) { b = [zeros(P.npts, 3); zeros(P.npts, 3); sparse(1:P.npts, 1:P.npts, WH)*P.pts]; }
+//    Eigen::MatrixXd zeros = Eigen::MatrixXd::Zero(pts_num_, 3);
+//    Eigen::MatrixXd WHP = WH_Ptr_->asDiagonal() * (*cloudPtr);
+//    Eigen::MatrixXd b(2 * pts_num_, 3);
+//    b << zeros, WHP;
+//
+//    // Solve the linear system
+//    Eigen::SparseMatrix<double> ATA = A.transpose() * A;
+//    Eigen::MatrixXd ATb = A.transpose() * b;
+//    Eigen::SimplicialCholesky<Eigen::SparseMatrix<double>> solver;
+//    solver.compute(ATA);
+//    if (solver.info() != Eigen::Success) {
+//        std::cerr << "Error: Eigen decomposition failed!" << std::endl;
+//        std::exit(EXIT_FAILURE);
+//    }
+//    Eigen::MatrixXd cpts = solver.solve(ATb);
+//
+//    auto end = std::chrono::high_resolution_clock::now();
+//    std::chrono::duration<double> elapsed = end - start;
+//    std::cout << "Linear system has been solved! Elapsed time: " << elapsed.count() << "s" << std::endl;
+//
+//    return cpts;
+//}
 
 
 void Skeleton::GetMeanVertexDualArea(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
@@ -439,6 +592,17 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
     Eigen::MatrixXd cpts = LaplacianContraction(cloudPtr_);
     std::shared_ptr<Eigen::MatrixXd> cptsPtr = std::make_shared<Eigen::MatrixXd>(cpts);
 
+
+    // --------------------------------------------------------------------------
+    // Debug
+    // --------------------------------------------------------------------------
+//    tool::visualize::DrawPointClouds("Contraction", {{"Original",    cloudPtr_},
+//                                                     {"Iteration 1", cptsPtr}});
+    // --------------------------------------------------------------------------
+    // Debug
+    // --------------------------------------------------------------------------
+
+
     // Check the contraction rate
     std::vector<double> contraction_history;
     GetMeanVertexDualArea(cloudPtr_);
@@ -447,15 +611,6 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
     contraction_history.emplace_back(contraction_rate);
     std::cout << "Current mean area is: " << faces_area_.back() << "; "
               << "the contract ratio is: " << contraction_rate << std::endl;
-
-
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-//    tool::visualize::DrawPointClouds("Contraction", {{"Original", cloudPtr_}, {"Iteration 1", cptsPtr}});
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
 
     // Compute sigma for the contracted points
     ComputeSigma(cptsPtr, "weighted");
@@ -478,40 +633,23 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
         // Update Laplacian matrix
         EstablishLaplacianMatrix(cptsPtr);
 
-        // Update Spring energy
-        EstablishSpringEnergy(cptsPtr, 4, 3.0, 0.0015 * diagonal_length_);
-
         // Fix the points with high sigma --- Current Version
         for (int j = 0; j < pts_num_; ++j) {
-            if (smooth_sigmaPtr_->at(j) >= fix_eigen_ratio_ || WH_Ptr_->coeffRef(j) == 3.0) {
+            if (WH_Ptr_->coeffRef(j) == 9.0) {
+                continue; // Skip the tip points
+            } else if (smooth_sigmaPtr_->at(j) >= fix_eigen_ratio_ || WH_Ptr_->coeffRef(j) == 3.0) {
                 WH_Ptr_->coeffRef(j) = 3.0;
                 WL_Ptr_->coeffRef(j) = 0.0;
-//            } else {
-//                double temp_WL = WL_Ptr_->coeffRef(j) * sL_;
-//                if (temp_WL > 2048) {
-//                    WL_Ptr_->coeffRef(j) = 2048;
-//                } else {
-//                    WL_Ptr_->coeffRef(j) = temp_WL;
-//                }
+            } else if (smooth_sigmaPtr_->at(j) >= fix_eigen_ratio_ - 0.10) {
+                continue;
+            } else {
+                WL_Ptr_->coeffRef(j) = WL_Ptr_->coeffRef(j) * sL_ > 9.0 ? 9.0 : WL_Ptr_->coeffRef(j) * sL_;
             }
         }
 
         // Contract one more time
         Eigen::MatrixXd cpts_temp = LaplacianContraction(cptsPtr);
         std::shared_ptr<Eigen::MatrixXd> cpts_tempPtr = std::make_shared<Eigen::MatrixXd>(cpts_temp);
-
-        // Check the contraction rate
-        GetMeanVertexDualArea(cpts_tempPtr);
-        contraction_rate = faces_area_.back() / faces_area_[0];
-        contraction_history.emplace_back(contraction_rate);
-        std::cout << "Current mean area is: " << faces_area_.back() << "; "
-                  << "the contract ratio is: " << contraction_rate << std::endl;
-        if (contraction_history[i] - contraction_history.back() <= 0.0 || std::isnan(contraction_history.back())) {
-            std::cout << "Touch the threshold! Iteration " << i + 2
-                      << " terminated! Total valid contraction iteration time: "
-                      << i + 1 << std::endl;
-            break;
-        }
 
 
         // --------------------------------------------------------------------------
@@ -522,6 +660,19 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
         // Debug
         // --------------------------------------------------------------------------
 
+
+        // Check the contraction rate
+        GetMeanVertexDualArea(cpts_tempPtr);
+        contraction_rate = faces_area_.back() / faces_area_[0];
+        contraction_history.emplace_back(contraction_rate);
+        std::cout << "Current mean area is: " << faces_area_.back() << "; "
+                  << "the contract ratio is: " << contraction_rate << std::endl;
+        if (contraction_history[i] - contraction_history.back() <= 1e-6 || std::isnan(contraction_history.back())) {
+            std::cout << "Touch the threshold! Iteration " << i + 2
+                      << " terminated! Total valid contraction iteration time: "
+                      << i + 1 << std::endl;
+            break;
+        }
 
         // Update sigma
         ComputeSigma(cpts_tempPtr, "weighted");
@@ -536,8 +687,8 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
 
         // Update cptsPtr
         *cptsPtr = *cpts_tempPtr;
-        sL_ = sL_ * 1.20 < 3.0 ? sL_ * 1.20 : 3.0; // TODO: sL_ is necessary?
     }
 
     return cptsPtr;
 }
+

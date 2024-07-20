@@ -116,7 +116,7 @@ namespace tool {
         /**
          TODO: Add description
          */
-        double Compute95thPercentile(const Eigen::VectorXd &vec);
+        std::vector<int> FindUpperOutlierBySTD(const std::vector<double>& data);
 
 
         /**
@@ -187,7 +187,7 @@ namespace tool {
          *
          */
         void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr,
-                              const int k, const int center_index);
+                               const int k, const int center_index);
     }
 
 

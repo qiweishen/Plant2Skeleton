@@ -11,7 +11,7 @@ int main() {
     std::vector<std::string> file_names = {"C20-2", "C20-4", "Ca46-1", "Ca46-5", "Ca11-2"}; // "C20-2", "C20-4", "Ca46-1", "Ca46-5", "Ca11-2"
     for (const std::string &file_name : file_names) {
         std::string file_path = "../../../main/data/Skeleton/" + file_name + "/" + file_name + "_Downsampled.ply";
-        std::string folder_path = "../../../main/data/Skeleton/" + file_name + "/" + "Refined_Laplacian(PCA_085)" + "/";
+        std::string folder_path = "../../../main/data/Skeleton/" + file_name + "/" + "Refined_Laplacian_0(PCA_085)" + "/";
         std::filesystem::create_directory(folder_path);
 
 
