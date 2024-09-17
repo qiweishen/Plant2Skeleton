@@ -1,6 +1,0 @@
-#ifndef CPP_MODULES_L1MEDIALSKELETON_H
-#define CPP_MODULES_L1MEDIALSKELETON_H
-
-#include "../../../Pybind/Pybind.h"
-
-#endif //CPP_MODULES_L1MEDIALSKELETON_H
