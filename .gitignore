@@ -1,4 +1,5 @@
 .idea/
 cmake-build-debug/
+*.DS_Store
 /data/Dataset/
 /data/Output/
