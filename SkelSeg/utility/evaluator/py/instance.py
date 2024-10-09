@@ -1,5 +1,6 @@
-import numpy as np
 import json
+
+import numpy as np
 from scipy import stats
 
 
@@ -147,7 +148,7 @@ def instance_evaluation(pred_sem_label, gt_sem_label, pred_inst_label, gt_inst_l
 
     # Save results as a JSON file
     try:
-        with open("../data/Output/instance_evaluation_results_global.json", "w") as json_file:
+        with open("../../../../data/Output/P4-docs/instance_evaluation_results_global.json", "w") as json_file:
             json.dump(results, json_file, indent=4)
     except FileNotFoundError:
         print("Output directory not found. Please create it first.")

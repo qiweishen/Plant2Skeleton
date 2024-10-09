@@ -1,0 +1,57 @@
+{
+    "Input_Settings": {
+        "Batch_Processing": false,
+        "Bath_Processing_Folder_Path": "...",
+        "Point_Cloud_File_Extension": "...",
+        "Point_Cloud_File_Path": "/Users/shenqiwei/Downloads/Dataset_pointcloud/Selected/2023-01-16_44_000327.xyz",
+        "With_Labels": false,
+        "Labels_Names": {
+            "PLY_Format": {
+                "Individual_Labels_File": false,
+                "Labels_File_Paths": {
+                    "Semantic_Label_File_Path": "...",
+                    "Instance_Label_File_Path": "..."
+                },
+                "Semantic_Label_Name": "semantic",
+                "Instance_Label_Name": "instance"
+            },
+            "TXT_XYZ_Format": {
+                "Individual_Labels_File": false,
+                "Labels_File_Paths": {
+                    "Semantic_Label_File_Path": "...",
+                    "Instance_Label_File_Path": "..."
+                },
+                "Total_Columns": 0,
+                "Semantic_Labels_Index": 0,
+                "Instance_Labels_Index": 0
+            }
+        }
+    },
+    "Preprocess": {
+        "Down_Sample_Number": 102400,
+        "Normalize_Diagonal_Length": 1.6
+    },
+    "Constraint_Laplacian_Operator": {
+        "Initial_k": 8,
+        "Delta_k": 4,
+        "Max_k": 32
+    },
+    "Adaptive_Contraction": {
+        "Smooth_Sigma_Threshold": 0.90,
+        "Sigma_Sphere_Radius_Ratio": 0.015,
+        "Sigma_KNN_Search": 8,
+        "Max_Distance_Ratio": 0.005
+    },
+    "Terminate_Condition": {
+        "Max_Iteration": 25,
+        "Convergence_Threshold": 1e-4
+    },
+    "Skeleton_Building": {
+        "Down_Sample_Number": 1024,
+        "LOP_Sphere_Radius_Ratio": 0.045
+    },
+    "Output_Settings": {
+        "Output_Folder_Path": "../data/Output/TreeML/2023-01-16_44_000327_x10",
+        "Output_File_DataFormat": "Binary"
+    }
+}

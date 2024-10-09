@@ -1,5 +1,6 @@
-#ifndef CPPTEST_GRAPH_H
-#define CPPTEST_GRAPH_H
+#ifndef GRAPH_H
+#define GRAPH_H
+
 
 #include "Skeleton.h"
 
@@ -12,6 +13,7 @@
 #include <boost/graph/kruskal_min_spanning_tree.hpp>
 
 
+
 typedef boost::property<boost::edge_weight_t, double> Boost_EdgeWeightProperty;
 typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS, Eigen::Vector3d, Boost_EdgeWeightProperty> Boost_Graph;
 typedef boost::graph_traits<Boost_Graph>::adjacency_iterator Boost_AdjIt;
@@ -22,33 +24,12 @@ typedef boost::graph_traits<Boost_Graph>::edge_iterator Boost_EdgeIt;
 typedef boost::property_map<Boost_Graph, boost::edge_weight_t>::type Boost_WeightMap;
 
 
-struct JunctionFoundException : std::exception {
-    const char *what() const throw() {
-        return "Junction found";
-    }
-};
-
-struct bfs_visitor : public boost::default_bfs_visitor {
-    Boost_Vertex end_vertex;
-    bool &found;
-
-    bfs_visitor(Boost_Vertex v, bool &found) : end_vertex(v), found(found) {}
-
-    template<typename Vertex, typename Graph>
-    void discover_vertex(Vertex u, const Graph &g) {
-        if (u == end_vertex) {
-            found = true;
-            throw u; // Throw to stop the BFS when the junction is reached
-        }
-    }
-};
-
 
 class Graph {
 public:
-    explicit Graph(std::shared_ptr<Eigen::MatrixXd> &cloudPtr, double diagonal_length) :
+    explicit Graph(std::shared_ptr<Eigen::MatrixXd> &cloudPtr, nlohmann::json &config) :
             cloudPtr_(cloudPtr),
-            diagonal_length_(diagonal_length),
+            config_(config),
             graphPtr_(std::make_shared<Boost_Graph>()),
             mstPtr_(std::make_shared<Boost_Graph>()),
             pruned_mstPtr_(std::make_shared<Boost_Graph>()) {}
@@ -57,13 +38,13 @@ public:
         GetSkeletonGraph();
         ComputeMST();
         return mstPtr_;
-//        return graphPtr_;
     }
 
     std::shared_ptr<Boost_Graph> GetPrunedMST() {
         if (mstPtr_ == nullptr) {
-            std::cerr << "MST graph is not computed yet" << std::endl;
-            return nullptr;
+            MyLogger.Log("MST graph is not computed yet.", 1, true, true);
+            GetMST();
+            GetPrunedMST();
         }
         PruneMST();
         return pruned_mstPtr_;
@@ -71,23 +52,30 @@ public:
 
     // Shoot is the first class in the "result" vector
     std::vector<std::vector<Boost_Vertex>> SegmentSkeleton() {
-        std::cout << "--------------------------------------------------" << std::endl;
-        std::cout << "Start segment skeleton" << std::endl;
+        MyLogger.Log("--------------------------------------------------", 0, true, false);
+        MyLogger.Log("Start segment skeleton", 0, true, true);
+        auto start = std::chrono::high_resolution_clock::now();
         if (pruned_mstPtr_ == nullptr) {
-            std::cerr << "Pruned MST graph is not computed yet" << std::endl;
-            return {};
+            MyLogger.Log("Pruned MST graph is not computed yet.", 1, true, true);
+            GetPrunedMST();
         }
         GetRootNode();
         GetLeaves();
         GetShoot();
         std::vector<std::vector<Boost_Vertex>> result = leafs_;
         result.insert(result.begin(), shoot_);
+        auto end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = end - start;
+        MyLogger.Log(std::format("Skeleton segmentation finished! Elapsed time: {}s.", elapsed.count()), 0, true, false);
         return result;
     }
 
 private:
     std::shared_ptr<Eigen::MatrixXd> cloudPtr_;
-    double diagonal_length_;
+    nlohmann::json config_;
+
+    const double diagonal_length_ = config_["Preprocess"]["Normalize_Diagonal_Length"].get<double>();
+    std::filesystem::path output_folder_path_ = config_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
 
     std::shared_ptr<Boost_Graph> graphPtr_;
     std::shared_ptr<Boost_Graph> mstPtr_;
@@ -110,4 +98,5 @@ private:
 };
 
 
-#endif //CPPTEST_GRAPH_H
+
+#endif // GRAPH_H

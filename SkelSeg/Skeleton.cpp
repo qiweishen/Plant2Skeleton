@@ -1,8 +1,6 @@
 #include "Skeleton.h"
 #include "Tools.h"
 
-#include "geometrycentral/pointcloud/point_cloud_heat_solver.h"
-
 
 void Skeleton::InitializeParameters(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
     // Initialize Laplacian matrix
@@ -17,12 +15,13 @@ void Skeleton::InitializeParameters(const std::shared_ptr<Eigen::MatrixXd> &clou
     WL_Ptr_->fill(initial_WL_);
     WH_Ptr_->fill(initial_WH_);
     for (int tip_index: tip_indices_) {
-        WH_Ptr_->coeffRef(tip_index) = 9.0;
+        WH_Ptr_->coeffRef(tip_index) = tip_point_WH_;
     }
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Weight matrices have been initialized! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    MyLogger.Log(std::format("Weight matrices have been initialized! Elapsed time: {:.6f}s.", elapsed.count()), 0, true,
+                 false);
 }
 
 
@@ -39,80 +38,14 @@ void Skeleton::EstablishLaplacianMatrix(const std::shared_ptr<Eigen::MatrixXd> &
     }
     gc_geom->kNeighborSize = k_neighbors_;
 
-
-    // Find the lowest vertex index
-    // TODO: Set a FLAG
+    // threshold_edge_length_ is utilized as a flag to determine whether the tip points/edge threshold are found
+    // and there is no need to CollapseLargeFaces at first iteration, since the k_neighbors_ is small
     if (threshold_edge_length_ < 0.0) {
-        Eigen::VectorXd z_values = cloudPtr->col(2);
-        int min_index;
-        z_values.minCoeff(&min_index);
-        geometrycentral::pointcloud::PointCloudHeatSolver solver(*gc_cloudPtr, *gc_geom);
-        geometrycentral::pointcloud::Point pSource = gc_cloudPtr->point(min_index);
-        geometrycentral::pointcloud::PointData<double> distance = solver.computeDistance(pSource);
-        std::vector<std::vector<size_t>> neighbors_indices;
-        neighbors_indices = tool::utility::KNNSearch(cloudPtr, 16);
-        tip_indices_.clear();
-        tip_indices_.emplace_back(min_index);
-        for (int i = 0; i < pts_num_; ++i) {
-            double center_value = distance[i];
-            std::vector<double> neighbor_values;
-            for (const size_t &index: neighbors_indices[i]) {
-                neighbor_values.emplace_back(distance[index]);
-            }
-            double max_neighbor_value = *std::max_element(neighbor_values.begin(), neighbor_values.end());
-            if (center_value > max_neighbor_value) {
-                tip_indices_.emplace_back(i);
-            }
-        }
-
-
-        // --------------------------------------------------------------------------
-        // Debug
-        // --------------------------------------------------------------------------
-//        // For visualization
-//        std::shared_ptr<Eigen::MatrixXd> tip_points = std::make_shared<Eigen::MatrixXd>(tip_indices_.size(), 3);
-//        for (int i = 0; i < tip_indices_.size(); ++i) {
-//            tip_points->row(i) = cloudPtr->row(tip_indices_[i]);
-//        }
-//        tool::visualize::DrawPointClouds("Cloud", {{"Vertex", cloudPtr}});
-//        polyscope::getPointCloud("Vertex")->addScalarQuantity("geodesic distance", distance);
-//        tool::visualize::DrawPointClouds("Tip Points", {{"Tip", tip_points}});
-//        std::shared_ptr<Eigen::MatrixXd> source_points = std::make_shared<Eigen::MatrixXd>(1, 3);
-//        source_points->row(0) = cloudPtr->row(min_index);
-//        tool::visualize::DrawPointClouds("Source Points", {{"Source", source_points}});
-        // --------------------------------------------------------------------------
-        // Debug
-        // --------------------------------------------------------------------------
-
-
-    }
-
-
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-//    tool::visualize::DrawTuftedMesh("Tufted Mesh", gc_geom);
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-
-
-    // No need to CollapseLargeFaces at first, since the k_neighbors_ is small
-    if (threshold_edge_length_ < 0.0) {
+        FindTipPoints(cloudPtr, gc_cloudPtr, gc_geom);
         FindEdgeThreshold(gc_cloudPtr, gc_geom);
     } else {
         CollapseEdges(gc_cloudPtr, gc_geom);
     }
-
-
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-//    tool::visualize::DrawTuftedMesh("Tufted Mesh - After Face Ignore", gc_geom);
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-
 
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -122,12 +55,48 @@ void Skeleton::EstablishLaplacianMatrix(const std::shared_ptr<Eigen::MatrixXd> &
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Laplacian matrix has been established! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    MyLogger.Log(std::format("Laplacian matrix has been established! Elapsed time: {:.6f}s.", elapsed.count()), 0, true,
+                 false);
 }
 
 
-void Skeleton::FindEdgeThreshold(std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
-                                 std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
+void Skeleton::FindTipPoints(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr,
+                             const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+                             const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
+    auto start = std::chrono::high_resolution_clock::now();
+
+    // Find the lowest vertex index
+    Eigen::VectorXd z_values = cloudPtr->col(2);
+    int min_index;
+    z_values.minCoeff(&min_index);
+    geometrycentral::pointcloud::PointCloudHeatSolver solver(*gc_cloudPtr, *gc_geom);
+    geometrycentral::pointcloud::Point pSource = gc_cloudPtr->point(min_index);
+    geometrycentral::pointcloud::PointData<double> distance = solver.computeDistance(pSource);
+    std::vector<std::vector<size_t>> neighbors_indices;
+    neighbors_indices = tool::utility::KNNSearch(cloudPtr, 16);
+    tip_indices_.clear();
+    tip_indices_.emplace_back(min_index);
+    for (int i = 0; i < pts_num_; ++i) {
+        double center_value = distance[i];
+        std::vector<double> neighbor_values;
+        for (const size_t &index: neighbors_indices[i]) {
+            neighbor_values.emplace_back(distance[index]);
+        }
+        double max_neighbor_value = *std::max_element(neighbor_values.begin(), neighbor_values.end());
+        if (center_value > max_neighbor_value) {
+            tip_indices_.emplace_back(i);
+        }
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    MyLogger.Log(std::format("Tip points have been found by using Geodesic distance! Elapsed time: {:.6f}s.",
+                             elapsed.count()), 0, true, false);
+}
+
+
+void Skeleton::FindEdgeThreshold(const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+                                 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
     auto start = std::chrono::high_resolution_clock::now();
 
     // Generate the local triangles
@@ -156,7 +125,8 @@ void Skeleton::FindEdgeThreshold(std::shared_ptr<geometrycentral::pointcloud::Po
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Threshold edge length has been initialized! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    MyLogger.Log(std::format("Threshold edge length has been initialized! Elapsed time: {:.6f}s.", elapsed.count()), 0,
+                 true, false);
 }
 
 
@@ -292,12 +262,14 @@ void Skeleton::CollapseEdges(std::shared_ptr<geometrycentral::pointcloud::PointC
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Large faces have been ignored! Final Stage Elapsed time: " << elapsed.count() << "s" << std::endl;
+    MyLogger.Log(std::format("Long edges have been ignored! Elapsed time: {:.6f}s.", elapsed.count()), 0, true, false);
 }
 
 
 std::tuple<Eigen::SparseMatrix<double>, Eigen::MatrixXd>
-Skeleton::LengthConstraint(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
+Skeleton::DistanceConstraint(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
+    auto start = std::chrono::high_resolution_clock::now();
+
     // Initialize PointCloud and Geometry
     auto gc_cloudPtr = std::make_shared<geometrycentral::pointcloud::PointCloud>(pts_num_);
     auto gc_geom = std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_cloudPtr);
@@ -307,7 +279,7 @@ Skeleton::LengthConstraint(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
     for (int i = 0; i < pts_num_; ++i) {
         gc_geom->positions[i] = vertices_positions[i];
     }
-    gc_geom->kNeighborSize = 4;
+    gc_geom->kNeighborSize = k_neighbors_distance_constraint_;
     gc_geom->requireLaplacian();
     gc_geom->tuftedGeom->requireEdgeLengths();
 
@@ -324,8 +296,8 @@ Skeleton::LengthConstraint(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
                 geometrycentral::Vector3 point_j = gc_geom->positions[it.col()];
                 double distance = (point_i - point_j).norm();
 
-                if (distance > 0.005 * diagonal_length_) {
-                    geometrycentral::Vector3 e_i_j = (0.005 * diagonal_length_ / distance) * (point_i - point_j);
+                if (distance > max_distance_) {
+                    geometrycentral::Vector3 e_i_j = (max_distance_ / distance) * (point_i - point_j);
                     constraint_lengths.emplace_back(e_i_j);
                 } else {
                     geometrycentral::Vector3 e_i_j = (1.0) * (point_i - point_j);
@@ -351,19 +323,23 @@ Skeleton::LengthConstraint(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
     }
     H.setFromTriplets(tripletList.begin(), tripletList.end());
 
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    MyLogger.Log(std::format("Distance constraints have been built! Elapsed time: {:.6f}s.", elapsed.count()), 0, true,
+                 false);
+
     return std::make_tuple(H, e);
 }
 
 
-// TODO: Return std::shared_ptr<Eigen::MatrixXd>
 Eigen::MatrixXd Skeleton::LaplacianContraction(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
     auto start = std::chrono::high_resolution_clock::now();
 
     Eigen::SparseMatrix<double> H;
     Eigen::MatrixXd e;
-    std::tie(H, e) = LengthConstraint(cloudPtr);
+    std::tie(H, e) = DistanceConstraint(cloudPtr);
 
-    // Construct the matrix A (3pts_num_ x pts_num_) { A = [L.*WL; sparse(1:P.npts, 1:P.npts, S); sparse(1:P.npts, 1:P.npts, WH)]; }
+    // Construct the matrix A (2pts_num_+H x pts_num_) { A = [L.*WL; sparse(1:P.npts, 1:P.npts, WH); sparse(1:P.npts, 1:P.npts, H)]}
     std::vector<Eigen::Triplet<double>> A_tripletList;
     for (int i = 0; i < pts_num_; ++i) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(*L_Ptr_, i); it; ++it) {
@@ -374,17 +350,17 @@ Eigen::MatrixXd Skeleton::LaplacianContraction(const std::shared_ptr<Eigen::Matr
     }
     for (int i = 0; i < H.outerSize(); ++i) {
         for (Eigen::SparseMatrix<double>::InnerIterator it(H, i); it; ++it) {
-            double value = it.value() * 9.0;
+            double value = it.value() * WD_;
             A_tripletList.emplace_back(2 * pts_num_ + it.row(), it.col(), value);
         }
     }
     Eigen::SparseMatrix<double> A(2 * pts_num_ + H.rows(), pts_num_);
     A.setFromTriplets(A_tripletList.begin(), A_tripletList.end());
 
-    // Construct vector b (2pts_num_ x 3) { b = [zeros(P.npts, 3); zeros(P.npts, 3); sparse(1:P.npts, 1:P.npts, WH)*P.pts]; }
+    // Construct vector b (2pts_num_+e x 3) { b = [zeros(P.npts, 3); [(1:P.npts, 1:P.npts, WH)*P.pts]; e]}
     Eigen::MatrixXd zeros = Eigen::MatrixXd::Zero(pts_num_, 3);
     Eigen::MatrixXd WHP = WH_Ptr_->asDiagonal() * (*cloudPtr);
-    e = 9.0 * e;
+    e *= WD_;
     Eigen::MatrixXd b(2 * pts_num_ + e.rows(), 3);
     b << zeros, WHP, e;
 
@@ -394,57 +370,17 @@ Eigen::MatrixXd Skeleton::LaplacianContraction(const std::shared_ptr<Eigen::Matr
     Eigen::SimplicialCholesky<Eigen::SparseMatrix<double>> solver;
     solver.compute(ATA);
     if (solver.info() != Eigen::Success) {
-        std::cerr << "Error: Eigen decomposition failed!" << std::endl;
+        MyLogger.Log(" Eigen decomposition failed!", 1, true, true);
         std::exit(EXIT_FAILURE);
     }
     Eigen::MatrixXd cpts = solver.solve(ATb);
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Linear system has been solved! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    MyLogger.Log(std::format("Linear system has been solved! Elapsed time: {:.6f}s.", elapsed.count()), 0, true, false);
 
     return cpts;
 }
-
-// TODO: Return std::shared_ptr<Eigen::MatrixXd>
-//Eigen::MatrixXd Skeleton::LaplacianContraction(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
-//    auto start = std::chrono::high_resolution_clock::now();
-//
-//    // Construct the matrix A (3pts_num_ x pts_num_) { A = [L.*WL; sparse(1:P.npts, 1:P.npts, S); sparse(1:P.npts, 1:P.npts, WH)]; }
-//    std::vector<Eigen::Triplet<double>> A_tripletList;
-//    for (int i = 0; i < pts_num_; ++i) {
-//        for (Eigen::SparseMatrix<double>::InnerIterator it(*L_Ptr_, i); it; ++it) {
-//            double value = it.value() * WL_Ptr_->coeffRef(it.row());
-//            A_tripletList.emplace_back(it.row(), it.col(), value);
-//        }
-//        A_tripletList.emplace_back(pts_num_ + i, i, WH_Ptr_->coeffRef(i));
-//    }
-//    Eigen::SparseMatrix<double> A(2 * pts_num_, pts_num_);
-//    A.setFromTriplets(A_tripletList.begin(), A_tripletList.end());
-//
-//    // Construct vector b (2pts_num_ x 3) { b = [zeros(P.npts, 3); zeros(P.npts, 3); sparse(1:P.npts, 1:P.npts, WH)*P.pts]; }
-//    Eigen::MatrixXd zeros = Eigen::MatrixXd::Zero(pts_num_, 3);
-//    Eigen::MatrixXd WHP = WH_Ptr_->asDiagonal() * (*cloudPtr);
-//    Eigen::MatrixXd b(2 * pts_num_, 3);
-//    b << zeros, WHP;
-//
-//    // Solve the linear system
-//    Eigen::SparseMatrix<double> ATA = A.transpose() * A;
-//    Eigen::MatrixXd ATb = A.transpose() * b;
-//    Eigen::SimplicialCholesky<Eigen::SparseMatrix<double>> solver;
-//    solver.compute(ATA);
-//    if (solver.info() != Eigen::Success) {
-//        std::cerr << "Error: Eigen decomposition failed!" << std::endl;
-//        std::exit(EXIT_FAILURE);
-//    }
-//    Eigen::MatrixXd cpts = solver.solve(ATb);
-//
-//    auto end = std::chrono::high_resolution_clock::now();
-//    std::chrono::duration<double> elapsed = end - start;
-//    std::cout << "Linear system has been solved! Elapsed time: " << elapsed.count() << "s" << std::endl;
-//
-//    return cpts;
-//}
 
 
 void Skeleton::GetMeanVertexDualArea(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr) {
@@ -458,8 +394,8 @@ void Skeleton::GetMeanVertexDualArea(const std::shared_ptr<Eigen::MatrixXd> &clo
     for (int i = 0; i < pts_num_; ++i) {
         gc_geom->positions[i] = vertices_positions[i];
     }
-    // Fixed value, for computation efficiency
-    gc_geom->kNeighborSize = 8;
+    // Fixed value, for stable computation
+    gc_geom->kNeighborSize = k_neighbors_dual_area_;
 
     gc_geom->requireTuftedTriangulation();
     geometrycentral::surface::IntrinsicGeometryInterface &geometry = *(gc_geom->tuftedGeom);
@@ -470,7 +406,9 @@ void Skeleton::GetMeanVertexDualArea(const std::shared_ptr<Eigen::MatrixXd> &clo
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Mean vertex dual area has been updated! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    MyLogger.Log(std::format("Mean vertex dual area has been updated! Elapsed time: {:.6f}s.", elapsed.count()), 0,
+                 true,
+                 false);
 }
 
 
@@ -489,7 +427,7 @@ void Skeleton::ComputeSigma(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, co
         } else if (neighborhood == "sigma_radius_") {
             neighbors_indices = tool::utility::RadiusSearch(cloudPtr, sigma_radius_);
         }
-#pragma omp parallel for default(none) shared(neighbors_indices, cloudPtr)
+#pragma omp parallel for
         for (int i = 0; i < pts_num_; ++i) {
             std::vector<size_t> indices;
             // The first element is the query point itself
@@ -512,7 +450,7 @@ void Skeleton::ComputeSigma(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, co
             double lambda_2 = eigen_values(2);
             sigmaPtr_->at(i) = lambda_2 / (lambda_0 + lambda_1 + lambda_2);
         }
-#pragma omp parallel for default(none) shared(neighbors_indices)
+#pragma omp parallel for
         for (int i = 0; i < pts_num_; ++i) {
             for (size_t &index: neighbors_indices[i]) {
                 smooth_sigmaPtr_->at(i) += sigmaPtr_->at(index);
@@ -522,7 +460,7 @@ void Skeleton::ComputeSigma(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, co
         }
     } else if (neighborhood == "weighted") {
         neighbors_indices = tool::utility::RadiusSearch(cloudPtr, sigma_radius_);
-#pragma omp parallel for default(none) shared(neighbors_indices, cloudPtr, sigma_radius_)
+#pragma omp parallel for
         for (int i = 0; i < pts_num_; ++i) {
             Eigen::Vector3d query_point = cloudPtr->row(i);
             std::vector<size_t> indices = neighbors_indices[i];
@@ -555,7 +493,7 @@ void Skeleton::ComputeSigma(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, co
             double lambda_2 = eigen_values(2);
             sigmaPtr_->at(i) = lambda_2 / (lambda_0 + lambda_1 + lambda_2);
         }
-#pragma omp parallel for default(none) shared(neighbors_indices)
+#pragma omp parallel for
         for (int i = 0; i < pts_num_; ++i) {
             smooth_sigmaPtr_->at(i) += sigmaPtr_->at(i);
             for (const size_t &index: neighbors_indices[i]) {
@@ -564,35 +502,31 @@ void Skeleton::ComputeSigma(const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, co
             smooth_sigmaPtr_->at(i) /= int(neighbors_indices[i].size()) + 1;
         }
     } else {
-        std::cerr << "Invalid neighborhood searching method for Sigma!" << std::endl;
+        MyLogger.Log("Invalid neighborhood searching method for Sigma!", 1, true, true);
         std::exit(EXIT_FAILURE);
     }
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "Smooth sigmas have been updated! Elapsed time: " << elapsed.count() << "s" << std::endl;
+    MyLogger.Log(std::format("Smooth sigmas have been updated! Elapsed time: {:.6f}s.", elapsed.count()), 0, true,
+                 false);
 }
 
 
 void Skeleton::UpdateKNeighbors() {
-    const int max_neighbors = 32;
-    k_neighbors_ = k_neighbors_ + 4 > max_neighbors ? max_neighbors : k_neighbors_ + 4;
+    k_neighbors_ = k_neighbors_ + delta_k_ > max_k_ ? max_k_ : k_neighbors_ + delta_k_;
+    MyLogger.Log(std::format("k-nearest neighbors value has been updated! Current: {}.", k_neighbors_), 0, true, false);
 }
 
 
 // The main function for Laplacian skeletonization
 std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
     // Save the original points
-    std::shared_ptr<Eigen::MatrixXd> _ = std::make_shared<Eigen::MatrixXd>(pts_num_, 1);
-    for (int i = 0; i < pts_num_; ++i) {
-        _->coeffRef(i, 0) = 0.0;
-    }
-    std::vector<std::pair<std::string, std::string>> __ = {{"double", "smooth_sigma"}};
-    tool::io::SavePointCloudToPLY(output_path_ + "_cpts_0.ply", cloudPtr_, _, __);
+    tool::io::SavePointCloudToPLY(cloudPtr_, output_path_ / "_cpts_0.ply", binary_format_);
 
     // Start first time contraction
-    std::cout << "--------------------------------------------------" << std::endl;
-    std::cout << "Contraction iteration time: 1" << std::endl;
+    MyLogger.Log("--------------------------------------------------", 0, true, false);
+    MyLogger.Log("Contraction iteration time: 1", 0, true, false);
 
     // Initialize parameters
     InitializeParameters(cloudPtr_);
@@ -601,40 +535,32 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
     Eigen::MatrixXd cpts = LaplacianContraction(cloudPtr_);
     std::shared_ptr<Eigen::MatrixXd> cptsPtr = std::make_shared<Eigen::MatrixXd>(cpts);
 
-
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-//    tool::visualize::DrawPointClouds("Contraction", {{"Original",    cloudPtr_},
-//                                                     {"Iteration 1", cptsPtr}});
-    // --------------------------------------------------------------------------
-    // Debug
-    // --------------------------------------------------------------------------
-
-
     // Check the contraction rate
     std::vector<double> contraction_history;
     GetMeanVertexDualArea(cloudPtr_);
     GetMeanVertexDualArea(cptsPtr);
     double contraction_rate = faces_area_.back() / faces_area_[0];
     contraction_history.emplace_back(contraction_rate);
-    std::cout << "Current mean area is: " << faces_area_.back() << "; "
-              << "the contract ratio is: " << contraction_rate << std::endl;
+    MyLogger.Log(
+            std::format("Current mean area is: {:.6f}; the contract ratio is: {:.6f}.", faces_area_.back(),
+                        contraction_rate),
+            0, true, false);
 
     // Compute sigma for the contracted points
     ComputeSigma(cptsPtr, "weighted");
 
     // Save the contracted points
-    _ = std::make_shared<Eigen::MatrixXd>(pts_num_, 1);
+    std::vector<double> smooth_sigma;
+    smooth_sigma.resize(pts_num_);
     for (int i = 0; i < cptsPtr->rows(); ++i) {
-        _->coeffRef(i, 0) = smooth_sigmaPtr_->at(i);
+        smooth_sigma.at(i) = smooth_sigmaPtr_->at(i);
     }
-    tool::io::SavePointCloudToPLY(output_path_ + "_cpts_1.ply", cptsPtr, _, __);
+    tool::io::SavePointCloudToPLY(cptsPtr, output_path_ / "_cpts_1.ply", smooth_sigma, "smooth_sigma", binary_format_);
 
     // Start the contraction iterations
     for (int i = 0; i < max_iteration_time_ - 1; ++i) {
-        std::cout << "--------------------------------------------------" << std::endl;
-        std::cout << "Contraction iteration time: " << i + 2 << std::endl;
+        MyLogger.Log("--------------------------------------------------", 0, true, false);
+        MyLogger.Log(std::format("Contraction iteration time: {}", i + 2), 0, true, false);
 
         // Update k_neighbors
         UpdateKNeighbors();
@@ -644,15 +570,15 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
 
         // Fix the points with high sigma --- Current Version
         for (int j = 0; j < pts_num_; ++j) {
-            if (WH_Ptr_->coeffRef(j) == 9.0) {
+            if (WH_Ptr_->coeffRef(j) == tip_point_WH_ || WH_Ptr_->coeffRef(j) == contracted_point_WH_) {
                 continue; // Skip the tip points
-            } else if (smooth_sigmaPtr_->at(j) >= fix_eigen_ratio_ || WH_Ptr_->coeffRef(j) == 3.0) {
-                WH_Ptr_->coeffRef(j) = 3.0;
-                WL_Ptr_->coeffRef(j) = 0.0;
+            } else if (smooth_sigmaPtr_->at(j) >= fix_eigen_ratio_) {
+                WL_Ptr_->coeffRef(j) = contracted_point_WL_;
+                WH_Ptr_->coeffRef(j) = contracted_point_WH_;
             } else if (smooth_sigmaPtr_->at(j) >= fix_eigen_ratio_ - 0.10) {
                 continue;
             } else {
-                WL_Ptr_->coeffRef(j) = WL_Ptr_->coeffRef(j) * sL_ > 9.0 ? 9.0 : WL_Ptr_->coeffRef(j) * sL_;
+                WL_Ptr_->coeffRef(j) = WL_Ptr_->coeffRef(j) * sL_ > max_WL_ ? max_WL_ : WL_Ptr_->coeffRef(j) * sL_;
             }
         }
 
@@ -660,26 +586,17 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
         Eigen::MatrixXd cpts_temp = LaplacianContraction(cptsPtr);
         std::shared_ptr<Eigen::MatrixXd> cpts_tempPtr = std::make_shared<Eigen::MatrixXd>(cpts_temp);
 
-
-        // --------------------------------------------------------------------------
-        // Debug
-        // --------------------------------------------------------------------------
-//        tool::visualize::DrawPointClouds("Contraction", {{"Iteration " + std::to_string(i + 2), cpts_tempPtr}});
-        // --------------------------------------------------------------------------
-        // Debug
-        // --------------------------------------------------------------------------
-
-
         // Check the contraction rate
         GetMeanVertexDualArea(cpts_tempPtr);
         contraction_rate = faces_area_.back() / faces_area_[0];
         contraction_history.emplace_back(contraction_rate);
-        std::cout << "Current mean area is: " << faces_area_.back() << "; "
-                  << "the contract ratio is: " << contraction_rate << std::endl;
-        if (contraction_history[i] - contraction_history.back() <= 1e-6 || std::isnan(contraction_history.back())) {
-            std::cout << "Touch the threshold! Iteration " << i + 2
-                      << " terminated! Total valid contraction iteration time: "
-                      << i + 1 << std::endl;
+        MyLogger.Log(std::format("Current mean area is: {:.6f}; the contract ratio is: {:.6f}.", faces_area_.back(),
+                                 contraction_rate), 0, true, false);
+        if (contraction_history[i] - contraction_history.back() <= contraction_threshold_ ||
+            std::isnan(contraction_history.back())) {
+            MyLogger.Log(std::format(
+                    "Touch the threshold! Iteration {} terminated! Total valid contraction iteration time: {}.", i + 2,
+                    i + 1), 0, true, false);
             break;
         }
 
@@ -687,12 +604,13 @@ std::shared_ptr<Eigen::MatrixXd> Skeleton::ContractionIteration() {
         ComputeSigma(cpts_tempPtr, "weighted");
 
         // Save the contracted points
-        _ = std::make_shared<Eigen::MatrixXd>(pts_num_, 1);
+        smooth_sigma.clear();
+        smooth_sigma.resize(pts_num_);
         for (int j = 0; j < cpts_tempPtr->rows(); ++j) {
-            _->coeffRef(j, 0) = smooth_sigmaPtr_->at(j);
+            smooth_sigma.at(j) = smooth_sigmaPtr_->at(j);
         }
-        tool::io::SavePointCloudToPLY(output_path_ + "_cpts_" + std::to_string(i + 2) + ".ply", cpts_tempPtr, _,
-                                      __);
+        tool::io::SavePointCloudToPLY(cpts_tempPtr, output_path_ / ("_cpts_" + std::to_string(i + 2) + ".ply"),
+                                      smooth_sigma, "smooth_sigma", binary_format_);
 
         // Update cptsPtr
         *cptsPtr = *cpts_tempPtr;

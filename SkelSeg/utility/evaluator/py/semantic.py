@@ -1,5 +1,6 @@
-import numpy as np
 import json
+
+import numpy as np
 from sklearn import metrics
 
 
@@ -8,7 +9,7 @@ def semantic_evaluation(pred, gt, plants) -> dict:
     :param pred: semantic prediction, list of ndarray(N), binary classification
     :param gt: semantic ground truth, list of ndarray(N), binary classification
     :param plants: list of plant numbers
-    :return: dict, semantic evaluation results
+    :return: dict, semantic evaluator results
     """
     results = {}
 
@@ -83,7 +84,7 @@ def semantic_evaluation(pred, gt, plants) -> dict:
     results["Overall"] = overall_semantic_dict
 
     # Saving the results to a JSON file
-    with open("../data/Output/semantic_evaluation_results_global.json", "w") as f:
+    with open("../../../../data/Output/P4-docs/semantic_evaluation_results_global.json", "w") as f:
         json.dump(results, f, indent=4)
 
     return results

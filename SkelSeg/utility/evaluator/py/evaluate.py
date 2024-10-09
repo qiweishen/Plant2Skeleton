@@ -1,10 +1,10 @@
 import os
 import shutil
 from typing import Tuple
-from plyfile import PlyData, PlyElement
 
-from evaluation.semantic import semantic_evaluation
-from evaluation.instance import instance_evaluation
+from SkelSeg.deps.evaluation.instance import instance_evaluation
+from SkelSeg.deps.evaluation.semantic import semantic_evaluation
+from plyfile import PlyData
 
 
 def get_total_pred_gt(pre_folder_path: str, gt_folder_path: str) -> Tuple[list, list, list, list, list]:
@@ -52,10 +52,11 @@ def evaluate(pred_sematic_label, pred_instance_label, gt_sematic_label, gt_insta
     :param plant_numbers:
     :return: None
     """
-    # semantic evaluation
+    # semantic evaluator
     semantic_result_dict = semantic_evaluation(pred_sematic_label, gt_sematic_label, plant_numbers)
-    # instance evaluation
-    instance_result_dict = instance_evaluation(pred_sematic_label, gt_sematic_label, pred_instance_label, gt_instance_label, plant_numbers)
+    # instance evaluator
+    instance_result_dict = instance_evaluation(pred_sematic_label, gt_sematic_label, pred_instance_label,
+                                               gt_instance_label, plant_numbers)
 
 
 def find_and_copy_ply_files(source_dir, destination_dir):
@@ -82,5 +83,5 @@ if __name__ == "__main__":
     find_and_copy_ply_files(source_directory, destination_directory)
 
     pred_sematic_label, pred_instance_label, gt_sematic_label, gt_instance_label, plant_numbers = get_total_pred_gt(
-        "../data/Output", "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/All_Input_10240/PLY")
+        "../../../../data/Output", "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/All_Input_10240/PLY")
     evaluate(pred_sematic_label, pred_instance_label, gt_sematic_label, gt_instance_label, plant_numbers)

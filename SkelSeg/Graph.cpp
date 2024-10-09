@@ -3,15 +3,16 @@
 
 
 void Graph::GetSkeletonGraph() {
+    MyLogger.Log("--------------------------------------------------", 0, true, false);
+    MyLogger.Log("Start generate initial graph", 0, true, true);
+    auto start = std::chrono::high_resolution_clock::now();
+
     graphPtr_->clear();
 
     std::vector<geometrycentral::Vector3> cloud_points = tool::utility::Matrix2GCVector(cloudPtr_);
     geometrycentral::NearestNeighborFinder cloud_finder(cloud_points);
 
-    std::cout << "--------------------------------------------------" << std::endl;
-    std::cout << "Start generate connected graph" << std::endl;
-
-    double radius = 0.001 * diagonal_length_;
+    double radius = 0.001 * diagonal_length_; // Start from a small radius
 
     // Use the skeleton points as the vertices of the graph
     for (int i = 0; i < cloudPtr_->rows(); ++i) {
@@ -50,14 +51,21 @@ void Graph::GetSkeletonGraph() {
         double dist = ((*graphPtr_)[u] - (*graphPtr_)[v]).norm(); //(a - b).norm();
         boost::put(weight_map, *ei, dist);
     }
+
+    tool::io::SaveSkeletonGraphToPLY(graphPtr_, output_folder_path_ / "_Initial_Graph.ply");
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    MyLogger.Log(std::format("Initial has been graph generated! Elapsed time: {:.6f}s.", elapsed.count()), 0, true, false);
 }
 
 
 void Graph::ComputeMST() {
-    mstPtr_->clear();
+    MyLogger.Log("--------------------------------------------------", 0, true, false);
+    MyLogger.Log("Start compute MST", 0, true, true);
+    auto start = std::chrono::high_resolution_clock::now();
 
-    std::cout << "--------------------------------------------------" << std::endl;
-    std::cout << "Start compute MST" << std::endl;
+    mstPtr_->clear();
 
     // Compute the MST edges
     std::vector<Boost_Edge> mst_edges;
@@ -75,14 +83,19 @@ void Graph::ComputeMST() {
         // Ensure the edge property is correctly constructed if more properties exist
         boost::add_edge(u, v, Boost_EdgeWeightProperty(weight), *mstPtr_);
     }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    MyLogger.Log(std::format("MST has been computed! Elapsed time: {:.6f}s.", elapsed.count()), 0, true, false);
 }
 
 
 void Graph::PruneMST() {
-    pruned_mstPtr_->clear();
+    MyLogger.Log("--------------------------------------------------", 0, true, false);
+    MyLogger.Log("Start prune MST", 0, true, true);
+    auto start = std::chrono::high_resolution_clock::now();
 
-    std::cout << "--------------------------------------------------" << std::endl;
-    std::cout << "Start prune MST" << std::endl;
+    pruned_mstPtr_->clear();
 
     Boost_Graph g = *mstPtr_;
     std::vector<size_t> degrees(boost::num_vertices(g), 0);
@@ -123,6 +136,7 @@ void Graph::PruneMST() {
         boost::remove_vertex(it, g);
     }
 
+    // Build the pruned MST
     std::map<Boost_Vertex, Boost_Vertex> index_map;
     // Add vertices
     for (std::tie(vi, vi_end) = boost::vertices(g); vi != vi_end; ++vi) {
@@ -138,6 +152,10 @@ void Graph::PruneMST() {
         auto new_edge = boost::add_edge(u, v, *pruned_mstPtr_);
         (*pruned_mstPtr_)[new_edge.first] = g[*ei];
     }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = end - start;
+    MyLogger.Log(std::format("MST has been pruned! Elapsed time: {:.6f}s.", elapsed.count()), 0, true, false);
 }
 
 
