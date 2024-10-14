@@ -3,7 +3,7 @@
         "Batch_Processing": false,
         "Bath_Processing_Folder_Path": "...",
         "Point_Cloud_File_Extension": "...",
-        "Point_Cloud_File_Path": "/Users/shenqiwei/Downloads/Dataset_pointcloud/Selected/2023-01-16_44_000327.xyz",
+        "Point_Cloud_File_Path": "/Users/shenqiwei/Downloads/Dataset_pointcloud/Selected/2023-01-10_38_000011.xyz",
         "With_Labels": false,
         "Labels_Names": {
             "PLY_Format": {
@@ -28,7 +28,7 @@
         }
     },
     "Preprocess": {
-        "Down_Sample_Number": 102400,
+        "Down_Sample_Number": 10240,
         "Normalize_Diagonal_Length": 1.6
     },
     "Constraint_Laplacian_Operator": {
@@ -51,7 +51,7 @@
         "LOP_Sphere_Radius_Ratio": 0.045
     },
     "Output_Settings": {
-        "Output_Folder_Path": "../data/Output/TreeML/2023-01-16_44_000327_x10",
-        "Output_File_DataFormat": "Binary"
+        "Output_Folder_Path": "../data/Output/TreeML/2023-01-10_38_000011-test-Pointer",
+        "Output_PLY_File_DataFormat": "ASCII"
     }
 }

@@ -265,3 +265,56 @@
 //        }
 //    }
 //};
+//// This function is adapted from Open3D,
+//// https://github.com/isl-org/Open3D/blob/main/cpp/open3d/geometry/PointCloud.cpp
+//std::shared_ptr<Eigen::MatrixXd> VoxelDownSample(const Eigen::MatrixXd &cloud, double voxel_size) {
+//	struct hash_eigen {
+//		std::size_t operator()(const Eigen::Vector3i &idx) const {
+//			std::size_t seed = 0;
+//			for (int i = 0; i < 3; ++i) {
+//				seed ^= std::hash<int>()(idx[i]) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+//			}
+//			return seed;
+//		}
+//	};
+//	class AccumulatedPoint {
+//		Eigen::Vector3d sum;
+//		int count;
+//
+//	public:
+//		AccumulatedPoint() : sum(Eigen::Vector3d::Zero()), count(0) {}
+//
+//		void AddPoint(const Eigen::Vector3d &point) {
+//			sum += point;
+//			++count;
+//		}
+//		[[nodiscard]] Eigen::Vector3d GetAveragePoint() const {
+//			if (count > 0)
+//				return sum / static_cast<double>(count);
+//			return Eigen::Vector3d::Zero();	 // return zero vector if no points were added
+//		}
+//	};
+//	if (voxel_size <= 0.0) {
+//		Logger::Instance().Log("voxel_size <= 0.0", LogLevel::ERROR);
+//	}
+//	Eigen::Vector3d voxel_size3 = Eigen::Vector3d(voxel_size, voxel_size, voxel_size);
+//	Eigen::Vector3d voxel_max_bound = cloud.colwise().maxCoeff().array() - voxel_size3 * 0.5;
+//	Eigen::Vector3d voxel_min_bound = cloud.colwise().minCoeff().array() - voxel_size3 * 0.5;
+//	if (voxel_size * std::numeric_limits<int>::max() < (voxel_max_bound - voxel_min_bound).maxCoeff()) {
+//		Logger::Instance().Log("voxel_size is too small.", LogLevel::ERROR);
+//	}
+//	std::unordered_map<Eigen::Vector3i, AccumulatedPoint, hash_eigen> voxelindex_to_accpoint;
+//	Eigen::Vector3i voxel_index;
+//	for (int i = 0; i < cloud.rows(); i++) {
+//		Eigen::Vector3d point = cloud.row(i);
+//		Eigen::Vector3d ref_coord = (point - voxel_min_bound) / voxel_size;
+//		voxel_index << static_cast<int>(floor(ref_coord(0))), static_cast<int>(floor(ref_coord(1))), static_cast<int>(floor(ref_coord(2)));
+//		voxelindex_to_accpoint[voxel_index].AddPoint(point);
+//	}
+//	Eigen::MatrixXd output(voxelindex_to_accpoint.size(), 3);
+//	int idx = 0;
+//	for (const auto &accpoint: voxelindex_to_accpoint) {
+//		output.row(idx++) = accpoint.second.GetAveragePoint();
+//	}
+//	return output;
+//}
