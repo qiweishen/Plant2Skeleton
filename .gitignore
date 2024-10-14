@@ -1,7 +1,9 @@
-*.idea/
-*cmake-build-debug/
-*cmake-build-release/
-*.DS_Store
+.idea/
+cmake-build-debug/
+cmake-build-release/
 /data/Dataset/
 /data/Output/
-Easy3D/
+/Easy3D/
+
+# For MacOS
+*.DS_Store
