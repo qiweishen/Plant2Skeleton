@@ -3,7 +3,6 @@ cmake-build-debug/
 cmake-build-release/
 /data/Dataset/
 /data/Output/
-/Easy3D/
 
 # For MacOS
 *.DS_Store
