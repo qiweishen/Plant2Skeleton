@@ -1,0 +1,2 @@
+/Library/Developer/CommandLineTools/usr/bin/ar qc ../../lib/lib3rd_poisson.a CMakeFiles/3rd_poisson.dir/CmdLineParser.cpp.o CMakeFiles/3rd_poisson.dir/Factor.cpp.o CMakeFiles/3rd_poisson.dir/Geometry.cpp.o CMakeFiles/3rd_poisson.dir/MarchingCubes.cpp.o
+/Library/Developer/CommandLineTools/usr/bin/ranlib ../../lib/lib3rd_poisson.a

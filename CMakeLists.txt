@@ -25,7 +25,7 @@ else()
 endif()
 
 # Find Easy3D; consider isolating Easy3D in a separate CMakeLists.txt
-set(easy3d_DIR "Easy3D/Release")
+set(easy3d_DIR "SkelSeg/3rd_party/easy3d/Release")
 find_package(easy3d REQUIRED)
 if(easy3d_FOUND)
     message(STATUS "Easy3D found: ${easy3d_VERSION}")

@@ -1,0 +1,2 @@
+/Library/Developer/CommandLineTools/usr/bin/ar qc ../../lib/lib3rd_polypartition.a CMakeFiles/3rd_polypartition.dir/polypartition.cpp.o
+/Library/Developer/CommandLineTools/usr/bin/ranlib ../../lib/lib3rd_polypartition.a
