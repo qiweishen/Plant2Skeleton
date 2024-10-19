@@ -11,8 +11,8 @@ void Graph::GetSkeletonGraph() {
 
 	graph_.clear();
 
-	std::vector<geometrycentral::Vector3> cloud_points = tool::utility::Matrix2Vector<geometrycentral::Vector3>(cloud_);
-	geometrycentral::NearestNeighborFinder cloud_finder(cloud_points);
+	std::vector<std::vector<double>> cloud_vertices = tool::utility::Matrix2Vector<std::vector<double>>(cloud_);
+	KDTree kdtree(cloud_vertices);
 
 	double radius = 0.001 * diagonal_length_;  // Start from a small radius
 
@@ -26,7 +26,7 @@ void Graph::GetSkeletonGraph() {
 		// Increase the search radius of each node to make connections
 		for (int i = 0; i < cloud_.rows(); ++i) {
 			std::vector<size_t> indices;
-			indices = cloud_finder.radiusSearch(cloud_points[i], radius);
+			indices = kdtree.neighborhood_indices(cloud_vertices[i], radius);
 			indices.erase(indices.begin());
 
 			for (const size_t &index: indices) {
@@ -52,10 +52,8 @@ void Graph::GetSkeletonGraph() {
 		put(weight_map, *ei, dist);
 	}
 
-	tool::io::SaveSkeletonGraphToPLY(graph_, output_folder_path_ / "_Initial_Graph.ply");
-
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Initial has been graph generated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
+	Logger::Instance().Log(std::format("Initial graph has been generated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
 						   false);
 }
 

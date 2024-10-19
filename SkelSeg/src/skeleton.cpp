@@ -32,12 +32,15 @@ void Skeleton::EstablishLaplacianMatrix(const Eigen::MatrixXd &cloud) {
 	for (int i = 0; i < pts_num_; ++i) {
 		gc_geom.positions[i] = vertices_positions[i];
 	}
-	gc_geom.kNeighborSize = k_neighbors_;
-
-	// threshold_edge_length_ is utilized as a flag to determine whether the tip points/edge threshold are found
-	// and there is no need to CollapseLargeFaces at first iteration, since the k_neighbors_ is small
 	if (threshold_edge_length_ < 0.0) {
 		FindTipPoints(cloud, gc_cloud, gc_geom);
+	}
+
+	UpdateNeighborhood(gc_cloud, gc_geom);
+
+	// threshold_edge_length_ is utilized as a flag to determine whether the tip points are found, with default kNeighborSize = 30
+	// and there is no need to CollapseEdges at first iteration, since the k_neighbors_ is small
+	if (threshold_edge_length_ < 0.0) {
 		FindEdgeThreshold(gc_cloud, gc_geom);
 	} else {
 		CollapseEdges(gc_cloud, gc_geom);
@@ -64,17 +67,26 @@ void Skeleton::FindTipPoints(const Eigen::MatrixXd &cloud, geometrycentral::poin
 	int min_index;
 	z_values.minCoeff(&min_index);
 	// Compute the geodesic distance from the lowest vertex
+	// In the PointCloudHeatSolver function, below quantities are required:
+	//		geom.requireNeighbors();
+	//		geom.requireTuftedTriangulation();
+	//		geom.tuftedGeom->requireEdgeLengths();
+	//		geom.requireTangentCoordinates();
 	geometrycentral::pointcloud::PointCloudHeatSolver solver(gc_cloud, gc_geom);
 	geometrycentral::pointcloud::Point pSource = gc_cloud.point(min_index);
 	geometrycentral::pointcloud::PointData<double> distance = solver.computeDistance(pSource);
 	// Identify the tip points by using KNN and the geodesic distance
-	std::vector<std::vector<size_t>> neighbors_indices = tool::utility::KNNSearch(cloud, 16);
+	std::vector<std::vector<size_t>> neighbors_indices = tool::utility::RadiusSearch(cloud, radius_neighbor_);
 	tip_indices_.clear();
 	tip_indices_.emplace_back(min_index);
 	for (int i = 0; i < pts_num_; ++i) {
 		double center_value = distance[i];
 		std::vector<double> neighbor_values;
+		neighbor_values.reserve(neighbors_indices[i].size());
 		for (const size_t &index: neighbors_indices[i]) {
+			if (index == i) {
+				continue;  // Skip the center point
+			}
 			neighbor_values.emplace_back(distance[index]);
 		}
 		if (double max_neighbor_value = *std::ranges::max_element(neighbor_values); center_value > max_neighbor_value) {
@@ -88,10 +100,46 @@ void Skeleton::FindTipPoints(const Eigen::MatrixXd &cloud, geometrycentral::poin
 }
 
 
+void Skeleton::UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cloud, geometrycentral::pointcloud::PointPositionGeometry &gc_geom) {
+	if (threshold_edge_length_ < 0) {  // First iteration
+		geometrycentral::addition::UnrequireAllQuantities(gc_geom);
+		gc_geom.purgeQuantities();
+		if (use_knn_search_) {
+			gc_geom.kNeighborSize = k_neighbors_;
+			Logger::Instance().Log(std::format("k-nearest neighbors value has been updated! Current: k = {}", k_neighbors_), LogLevel::INFO,
+								   IndentLevel::ONE, true, false);
+		} else {
+			gc_geom.neighborsQ.computed = true;
+			gc_geom.neighborsQ.requireCount = 1;
+			gc_geom.neighbors = std::make_unique<geometrycentral::pointcloud::Neighborhoods>(gc_cloud, gc_geom.positions, radius_neighbor_);
+			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbor_), LogLevel::INFO,
+								   IndentLevel::ONE, true, false);
+		}
+	} else {
+		if (use_knn_search_) {
+			k_neighbors_ = k_neighbors_ + delta_k_ > max_k_ ? max_k_ : k_neighbors_ + delta_k_;
+			gc_geom.kNeighborSize = k_neighbors_;
+			Logger::Instance().Log(std::format("k-nearest neighbors value has been updated! Current: k = {}", k_neighbors_), LogLevel::INFO,
+								   IndentLevel::ONE, true, false);
+		} else {
+			radius_neighbor_ = radius_neighbor_ + delta_radius_ > max_radius_ ? max_radius_ : radius_neighbor_ + delta_radius_;
+			gc_geom.neighborsQ.computed = true;
+			gc_geom.neighborsQ.requireCount = 1;
+			gc_geom.neighbors = std::make_unique<geometrycentral::pointcloud::Neighborhoods>(gc_cloud, gc_geom.positions, radius_neighbor_);
+			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbor_), LogLevel::INFO,
+								   IndentLevel::ONE, true, false);
+		}
+	}
+}
+
+
 void Skeleton::FindEdgeThreshold(geometrycentral::pointcloud::PointCloud &gc_cloud, geometrycentral::pointcloud::PointPositionGeometry &gc_geom) {
 	Timer timer;
 
 	// Generate the local triangles
+	// In the buildLocalTriangulations function, the following quantities are required:
+	//		geom.requireNeighbors();
+	//		geom.requireTangentCoordinates();
 	geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> local_tri_point =
 			buildLocalTriangulations(gc_cloud, gc_geom, true);
 	// Make a union of local triangles
@@ -145,7 +193,7 @@ void Skeleton::CollapseEdges(geometrycentral::pointcloud::PointCloud &gc_cloud, 
 	temp_geomPtr->requireEdgeLengths();
 	geometrycentral::surface::EdgeData<double> edge_lengths = temp_geomPtr->edgeLengths;
 	std::vector<std::vector<size_t>> faces_to_ignore;
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(temp_meshPtr, edge_lengths, faces_to_ignore)
 	for (size_t i = 0; i < temp_meshPtr->nVertices(); i++) {
 		geometrycentral::surface::Vertex vert = temp_meshPtr->vertex(i);
 		std::vector<geometrycentral::surface::Edge> adjacent_edges;
@@ -186,7 +234,7 @@ void Skeleton::CollapseEdges(geometrycentral::pointcloud::PointCloud &gc_cloud, 
 	// Check for unreferenced vertices
 	size_t max_index = pos_raw.size();
 	std::vector referenced(max_index, false);
-#pragma omp parallel
+#pragma omp parallel default(none) shared(all_tris, max_index, referenced)
 	{
 		std::vector local_referenced(max_index, false);
 #pragma omp for nowait
@@ -235,8 +283,10 @@ void Skeleton::CollapseEdges(geometrycentral::pointcloud::PointCloud &gc_cloud, 
 	flipToDelaunay(*tuftedMeshPtr, tuftedEdgeLengths);
 	// Create the geometry object
 	tuftedGeomPtr = std::make_unique<geometrycentral::surface::EdgeLengthGeometry>(*tuftedMeshPtr, tuftedEdgeLengths);
-	// Set tuftedTriangulationQ.require() to true
-	gc_geom.requireTuftedTriangulation();  // TODO: Can be improve?
+	// Set tuftedTriangulationQ.require() to true, tricky
+	gc_geom.tuftedTriangulationQ.computed = true;
+	// Actually, TuftedTriangulation did not compute
+	gc_geom.requireTuftedTriangulation();
 	// Replace the tuftedMesh and tuftedGeom
 	gc_geom.tuftedMesh = std::move(tuftedMeshPtr);
 	gc_geom.tuftedGeom = std::move(tuftedGeomPtr);
@@ -366,8 +416,6 @@ void Skeleton::GetMeanVertexDualArea(const Eigen::MatrixXd &cloud) {
 	for (int i = 0; i < pts_num_; ++i) {
 		gc_geomPtr->positions[i] = vertices_positions[i];
 	}
-	// Fixed value, for stable computation
-	gc_geomPtr->kNeighborSize = k_neighbors_dual_area_;
 
 	gc_geomPtr->requireTuftedTriangulation();
 	geometrycentral::surface::IntrinsicGeometryInterface &geometry = *gc_geomPtr->tuftedGeom;
@@ -382,7 +430,7 @@ void Skeleton::GetMeanVertexDualArea(const Eigen::MatrixXd &cloud) {
 }
 
 
-void Skeleton::ComputeSigma(const Eigen::MatrixXd &cloud, const std::string &neighborhood) {
+void Skeleton::ComputeSigma(const Eigen::MatrixXd &cloud) {
 	Timer timer;
 
 	sigma_.clear();
@@ -391,88 +439,48 @@ void Skeleton::ComputeSigma(const Eigen::MatrixXd &cloud, const std::string &nei
 	smooth_sigma_.resize(pts_num_);
 
 	std::vector<std::vector<size_t>> neighbors_indices;
-	if (neighborhood == "knn" || neighborhood == "sigma_radius_") {
-		if (neighborhood == "knn") {
-			neighbors_indices = tool::utility::KNNSearch(cloud, sigma_k_);
-		} else if (neighborhood == "sigma_radius_") {
-			neighbors_indices = tool::utility::RadiusSearch(cloud, sigma_radius_);
-		}
+	neighbors_indices = tool::utility::RadiusSearch(cloud, sigma_radius_);
 #pragma omp parallel for default(none) shared(neighbors_indices, cloud, Eigen::Dynamic)
-		for (int i = 0; i < pts_num_; ++i) {
-			std::vector<size_t> indices;
-			// The first element is the query point itself
-			indices.emplace_back(i);
-			indices.insert(indices.end(), neighbors_indices[i].begin(), neighbors_indices[i].end());
+	for (int i = 0; i < pts_num_; ++i) {
+		Eigen::Vector3d query_point = cloud.row(i);
+		std::vector<size_t> indices = neighbors_indices[i];
 
-			// If point does not meet these criteria, means it is quite isolated among its neighbors, just set to fix_eigen_ratio_
-			if (!(indices.size() >= 2 && indices[0] == i)) {
-				sigma_.at(i) = fix_eigen_ratio_;
-				continue;
-			}
-
-			Eigen::MatrixXd neighbors_cloud = tool::utility::SelectByIndices(cloud, neighbors_indices[i], 3);
-			Eigen::Matrix3d covariance = tool::utility::ComputeCovariance(neighbors_cloud);
-			Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> eigen_solver(covariance);
-			// For eigen_vectors, the columns are inverted, col(2).value > col(1).value > col(0).value
-			Eigen::Vector3d eigen_values = eigen_solver.eigenvalues();
-			double lambda_0 = eigen_values(0);
-			double lambda_1 = eigen_values(1);
-			double lambda_2 = eigen_values(2);
-			sigma_.at(i) = lambda_2 / (lambda_0 + lambda_1 + lambda_2);
+		// If point does not meet these criteria, means it is quite isolated among its neighbors, just set to fix_eigen_ratio_
+		if (!(indices.size() >= 2)) {
+			sigma_.at(i) = fix_eigen_ratio_;
+			continue;
 		}
+
+		// Remove the query point itself
+		indices.erase(std::remove(indices.begin(), indices.end(), i), indices.end());
+
+		neighbors_indices[i] = indices;
+		Eigen::MatrixXd Ci = Eigen::MatrixXd::Zero(3, 3);
+		// Compute Ci for Pi using its neighborhood.
+		for (const size_t &index: indices) {
+			Eigen::Vector3d pj = cloud.row(static_cast<int>(index));  // Get the neighboring point Pj.
+			Eigen::VectorXd diff = query_point - pj;
+			// Compute the weight based on the distance and a theta function.
+			double weight = (query_point - pj).cwiseAbs().sum();
+			weight = exp(-pow(weight, 2) / pow(sigma_radius_ / 4, 2));
+			// Add the weighted outer product to the covariance matrix Ci.
+			Ci += weight * diff * diff.transpose();
+		}
+		Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver(Ci);
+		// eigen_vectors The columns are inverted, col(2).value > col(1).value > col(0).value
+		Eigen::Vector3d eigen_values = eigen_solver.eigenvalues();
+		double lambda_0 = eigen_values(0);
+		double lambda_1 = eigen_values(1);
+		double lambda_2 = eigen_values(2);
+		sigma_.at(i) = lambda_2 / (lambda_0 + lambda_1 + lambda_2);
+	}
 #pragma omp parallel for default(none) shared(neighbors_indices)
-		for (int i = 0; i < pts_num_; ++i) {
-			for (size_t &index: neighbors_indices[i]) {
-				smooth_sigma_.at(i) += sigma_.at(index);
-			}
-			smooth_sigma_.at(i) += sigma_.at(i);
-			smooth_sigma_.at(i) /= static_cast<int>(neighbors_indices[i].size()) + 1;
+	for (int i = 0; i < pts_num_; ++i) {
+		smooth_sigma_.at(i) += sigma_.at(i);
+		for (const size_t &index: neighbors_indices[i]) {
+			smooth_sigma_.at(i) += sigma_.at(index);
 		}
-	} else if (neighborhood == "weighted") {
-		neighbors_indices = tool::utility::RadiusSearch(cloud, sigma_radius_);
-#pragma omp parallel for default(none) shared(neighbors_indices, cloud, Eigen::Dynamic)
-		for (int i = 0; i < pts_num_; ++i) {
-			Eigen::Vector3d query_point = cloud.row(i);
-			std::vector<size_t> indices = neighbors_indices[i];
-
-			// If point does not meet these criteria, means it is quite isolated among its neighbors, just set to fix_eigen_ratio_
-			if (!(indices.size() >= 2 && indices[0] == i)) {
-				sigma_.at(i) = fix_eigen_ratio_;
-				continue;
-			}
-
-			indices.erase(indices.begin());	 // Remove the query point itself
-
-			neighbors_indices[i] = indices;
-			Eigen::MatrixXd Ci = Eigen::MatrixXd::Zero(3, 3);
-			// Compute Ci for Pi using its neighborhood.
-			for (const size_t &index: indices) {
-				Eigen::Vector3d pj = cloud.row(static_cast<int>(index));  // Get the neighboring point Pj.
-				Eigen::VectorXd diff = query_point - pj;
-				// Compute the weight based on the distance and a theta function.
-				double weight = (query_point - pj).cwiseAbs().sum();
-				weight = exp(-pow(weight, 2) / pow(sigma_radius_ / 4, 2));
-				// Add the weighted outer product to the covariance matrix Ci.
-				Ci += weight * diff * diff.transpose();
-			}
-			Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver(Ci);
-			// eigen_vectors The columns are inverted, col(2).value > col(1).value > col(0).value
-			Eigen::Vector3d eigen_values = eigen_solver.eigenvalues();
-			double lambda_0 = eigen_values(0);
-			double lambda_1 = eigen_values(1);
-			double lambda_2 = eigen_values(2);
-			sigma_.at(i) = lambda_2 / (lambda_0 + lambda_1 + lambda_2);
-		}
-#pragma omp parallel for default(none) shared(neighbors_indices)
-		for (int i = 0; i < pts_num_; ++i) {
-			smooth_sigma_.at(i) += sigma_.at(i);
-			for (const size_t &index: neighbors_indices[i]) {
-				smooth_sigma_.at(i) += sigma_.at(index);
-			}
-			smooth_sigma_.at(i) /= static_cast<int>(neighbors_indices[i].size()) + 1;
-		}
-	} else {
-		Logger::Instance().Log("Invalid neighborhood searching method for Sigma!", LogLevel::ERROR);
+		smooth_sigma_.at(i) /= static_cast<int>(neighbors_indices[i].size()) + 1;
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
@@ -481,20 +489,12 @@ void Skeleton::ComputeSigma(const Eigen::MatrixXd &cloud, const std::string &nei
 }
 
 
-void Skeleton::UpdateKNeighbors() {
-	k_neighbors_ = k_neighbors_ + delta_k_ > max_k_ ? max_k_ : k_neighbors_ + delta_k_;
-	Logger::Instance().Log(std::format("k-nearest neighbors value has been updated! Current: {}.", k_neighbors_), LogLevel::INFO, IndentLevel::ONE,
-						   true, false);
-}
-
-
 // The main function for Laplacian skeletonization
 Eigen::MatrixXd Skeleton::ContractionIteration() {
 	// Save the original points
-	tool::io::SavePointCloudToPLY(cloud_, output_path_ / "_cpts_0.ply", binary_format_);
+	tool::io::SavePointCloudToPLY(cloud_, output_path_ / "cpts_0.ply");
 
 	// Start first time contraction
-	Logger::Instance().AddLine(LogLine::DASH);
 	Logger::Instance().Log("Contraction iteration time: 1", LogLevel::INFO, IndentLevel::ONE, true, false);
 
 	// Initialize parameters
@@ -513,28 +513,20 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 						   LogLevel::INFO, IndentLevel::ONE, true, false);
 
 	// Compute sigma for the contracted points
-	ComputeSigma(cpts, "weighted");
+	ComputeSigma(cpts);
 
 	// Save the contracted points
-	std::vector<double> smooth_sigma;
-	smooth_sigma.resize(pts_num_);
-	for (int i = 0; i < cpts.rows(); ++i) {
-		smooth_sigma.at(i) = smooth_sigma_.at(i);
-	}
-	tool::io::SavePointCloudToPLY(cpts, output_path_ / "_cpts_1.ply", smooth_sigma, "smooth_sigma", binary_format_);
+	tool::io::SavePointCloudToPLY(cpts, output_path_ / "cpts_1.ply", smooth_sigma_, "smooth-sigma");
 
 	// Start the contraction iterations
 	for (int i = 0; i < max_iteration_time_ - 1; ++i) {
 		Logger::Instance().AddLine(LogLine::DASH);
 		Logger::Instance().Log(std::format("Contraction iteration time: {}", i + 2), LogLevel::INFO, IndentLevel::ONE, true, false);
 
-		// Update k_neighbors
-		UpdateKNeighbors();
-
 		// Update Laplacian matrix
 		EstablishLaplacianMatrix(cpts);
 
-		// Fix the points with high sigma --- Current Version
+		// Fix the points with high sigma
 		for (int j = 0; j < pts_num_; ++j) {
 			if (WH_.coeffRef(j) == tip_point_WH_ || WH_.coeffRef(j) == contracted_point_WH_) {	// Skip the tip points and the contracted points
 				continue;
@@ -565,16 +557,10 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 		}
 
 		// Update sigma
-		ComputeSigma(cpts_temp, "weighted");
+		ComputeSigma(cpts_temp);
 
 		// Save the contracted points
-		smooth_sigma.clear();
-		smooth_sigma.resize(pts_num_);
-		for (int j = 0; j < cpts_temp.rows(); ++j) {
-			smooth_sigma.at(j) = smooth_sigma_.at(j);
-		}
-		tool::io::SavePointCloudToPLY(cpts_temp, output_path_ / ("_cpts_" + std::to_string(i + 2) + ".ply"), smooth_sigma, "smooth_sigma",
-									  binary_format_);
+		tool::io::SavePointCloudToPLY(cpts_temp, output_path_ / std::format("cpts_{}.ply", std::to_string(i + 2)), smooth_sigma_, "smooth-sigma");
 
 		// Update cpts
 		cpts = cpts_temp;
@@ -582,3 +568,13 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 
 	return cpts;
 }
+
+
+
+namespace geometrycentral::addition {
+	void UnrequireAllQuantities(geometrycentral::pointcloud::PointPositionGeometry &gc_geom) {
+		for (geometrycentral::DependentQuantity *q: gc_geom.quantities) {
+			q->requireCount = 0;
+		}
+	}
+}  // namespace geometrycentral::addition

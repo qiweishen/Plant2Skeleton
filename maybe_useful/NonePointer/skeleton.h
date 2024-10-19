@@ -83,7 +83,7 @@ private:
 	const double WD_ = 9.0;
 	const int k_neighbors_dual_area_ = 8;
 
-	// Recommend to change the following parameters in the ../configue.json file
+	// Recommend to change the following parameters in the ../configure.json file
 	const double diagonal_length_ = config_["Preprocess"]["Normalize_Diagonal_Length"].get<double>();
 	int k_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_k"].get<int>();
 	const int delta_k_ = config_["Constraint_Laplacian_Operator"]["Delta_k"].get<int>();

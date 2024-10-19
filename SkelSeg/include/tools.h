@@ -2,12 +2,12 @@
 #define TOOLS_H
 
 
+#include <KDTree.hpp>
 #include <easy3d/algo/point_cloud_simplification.h>
 #include <easy3d/core/point_cloud.h>
 #include <easy3d/fileio/point_cloud_io.h>
 #include <easy3d/kdtree/kdtree_search.h>
 #include <easy3d/kdtree/kdtree_search_eth.h>
-#include <fast_float/fast_float.h>
 #include <geometrycentral/pointcloud/local_triangulation.h>
 #include <geometrycentral/utilities/knn.h>
 #include <geometrycentral/utilities/vector2.h>
@@ -20,7 +20,7 @@
 
 
 
-inline bool isPlyFormatBinary;
+inline bool isPlyFormatBinary;	// Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
 
 namespace tool {
 	namespace preprocess {
@@ -66,9 +66,8 @@ namespace tool {
 		 * @brief Save point cloud to PLY file, which **only contains vertex information**.
 		 * @param file_path The path to the PLY file, must end with ".ply".
 		 * @param cloud The point cloud object (Eigen::MatrixXd).
-		 * @param binary Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
 		 */
-		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, bool binary = true);
+		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path);
 
 		/**
 		 * @brief Save point cloud to PLY file, which can contain one property (double type) of the points.
@@ -76,10 +75,9 @@ namespace tool {
 		 * @param cloud The point cloud object (Eigen::MatrixXd).
 		 * @param property The property of the points (std::vector<double>).
 		 * @param property_name The name of the property.
-		 * @param binary Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
 		 */
-		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, std::vector<double> &property,
-								 const std::string &property_name, bool binary = true);
+		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, const std::vector<double> &property,
+								 const std::string &property_name);
 
 		/**
 		 * @brief Save point cloud to PLY file, which can contain two label properties (int type) of the points.
@@ -88,10 +86,9 @@ namespace tool {
 		 * @param label_one The first label of the points (std::vector<int>).
 		 * @param label_two The second label of the points (std::vector<int>).
 		 * @param label_names The names of the first and second labels (std::pair<std::string, std::string>).
-		 * @param binary Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
 		 */
-		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, std::vector<int> &label_one,
-								 std::vector<int> &label_two, const std::pair<std::string, std::string> &label_names, bool binary = true);
+		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, const std::vector<int> &label_one,
+								 const std::vector<int> &label_two, const std::pair<std::string, std::string> &label_names);
 
 
 		/**
@@ -99,9 +96,8 @@ namespace tool {
 		 * @param graph The graph object (boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS, Eigen::Vector3d,
 		 * Boost_EdgeWeightProperty>).
 		 * @param file_path The path to the PLY file, must end with ".ply".
-		 * @param binary Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
 		 */
-		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path, bool binary = true);
+		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path);
 
 		/**
 		 * @brief Save the skeleton graph to Binary file, which will derive the semantic labels of the vertices and the semantic/instance labels of
@@ -109,11 +105,11 @@ namespace tool {
 		 * @param graph The graph object (boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS, Eigen::Vector3d,
 		 * Boost_EdgeWeightProperty>).
 		 * @param file_path The path to the PLY file, must end with ".ply".
+		 * @param vertex_semantic_labels The `semantic labels` of the skeleton vertices (std::vector<int>).
 		 * @param vertex_instance_labels The `instance labels` of the skeleton vertices (std::vector<int>).
-		 * @param binary Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
 		 */
-		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path, const std::vector<int> &vertex_instance_labels,
-									bool binary = true);
+		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path, const std::vector<int> &vertex_semantic_labels,
+									const std::vector<int> &vertex_instance_labels);
 
 
 		/**
@@ -169,6 +165,22 @@ namespace tool {
 			std::vector<T> LoadDataFromTXTXYZ(const std::filesystem::path &file_path, size_t dim, char delimiter = ' ');
 			template<typename T>
 			std::vector<T> ParseNDData(const std::string &data, size_t dim, char delimiter);
+
+
+			struct DataPoint {
+				Eigen::Vector3d pos;
+				int label1;
+				int label2;
+				DataPoint() : pos(Eigen::Vector3d::Zero()), label1(-2), label2(-2) {}
+				DataPoint(Eigen::Vector3d vec, int l1, int l2) : pos(std::move(vec)), label1(l1), label2(l2) {}
+			};
+			struct DataEdge {
+				Eigen::Vector2i idx;
+				int label1;
+				int label2;
+				DataEdge() : idx(Eigen::Vector2i::Zero()), label1(-2), label2(-2) {}
+				DataEdge(Eigen::Vector2i vec, int l1, int l2) : idx(std::move(vec)), label1(l1), label2(l2) {}
+			};
 		}  // namespace internal
 	}  // namespace io
 
@@ -221,14 +233,16 @@ namespace tool {
 		 * @return
 		 */
 		std::vector<std::vector<size_t>> KNNSearch(const Eigen::MatrixXd &cloud, size_t k);
+		std::vector<std::vector<size_t>> SKNNSearch(const Eigen::MatrixXd &cloud, const size_t k);
 
 
 		/**
-		 * @brief Generate all the neighbors within ball, the center point is included.
+		 * @brief Generate all the neighbors within ball, the center point is _included_.
 		 * @param cloud The point cloud.
 		 * @param radius The radius of the ball.
 		 */
 		std::vector<std::vector<size_t>> RadiusSearch(const Eigen::MatrixXd &cloud, double radius);
+		std::vector<std::vector<size_t>> SRadiusSearch(const Eigen::MatrixXd &cloud, const double radius);
 
 
 		/**
@@ -280,48 +294,59 @@ namespace tool {
 
 
 
-	// namespace debug {
-	// 	/**
-	// 	 * @brief Save a sphere to Binary file, for debugging.
-	// 	 */
-	// 	void SaveSphereToPLY(const Eigen::Vector3d &center, double radius, const std::string &filepath);
-	//
-	//
-	// 	namespace visualize {
-	// 		/**
-	// 		 * @brief Draw the point clouds, for debugging.
-	// 		 */
-	// 		void DrawPointClouds(const std::string &group_title,
-	// 							 const std::vector<std::pair<std::string, std::shared_ptr<Eigen::MatrixXd>>> &cloudsPairs);
-	//
-	//
-	// 		/**
-	// 		 * @brief Draw the mesh, for debugging.
-	// 		 */
-	// 		void DrawUnionLocalTriangles(const std::string &title,
-	// 									 const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
-	// 									 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
-	//
-	//
-	// 		/**
-	// 		 * @brief Draw the mesh, for debugging.
-	// 		 */
-	// 		void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
-	//
-	//
-	// 		/**
-	// 		 * @brief Draw the point clouds, for debugging.
-	// 		 */
-	// 		void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, int k, int center_index);
-	//
-	//
-	// 		void DrawTwoTangentPoints(const std::string &title,
-	// 								  const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
-	// 								  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr,
-	// 								  int k,
-	// 								  int center_index);
-	// 	}  // namespace visualize
-	// }  // namespace debug
+	namespace debug {
+		/**
+		 * @brief Compute the average number of non-zero values per row in the sparse matrix.
+		 * @param mat The sparse matrix (Eigen::SparseMatrix<double>).
+		 * @return The average number of non-zero values per row.
+		 */
+		double AverageNoneZerosPerRow(const Eigen::SparseMatrix<double> &mat);
+
+
+		/**
+		 * @brief Save a sphere to a ASCII PLY file, for debugging reference.
+		 * @param center The center of the sphere.
+		 * @param radius The radius of the sphere.
+		 * @param filepath The path to the ASCII PLY file, must end with ".ply".
+		 */
+		void SaveSphereToPLY(const Eigen::Vector3d &center, double radius, const std::filesystem::path &filepath);
+
+
+		//	 	namespace visualize {
+		//	 		/**
+		//	 		 * @brief Draw the point clouds, for debugging.
+		//	 		 */
+		//	 		void DrawPointClouds(const std::string &group_title,
+		//	 							 const std::vector<std::pair<std::string, std::shared_ptr<Eigen::MatrixXd>>> &cloudsPairs);
+		//
+		//
+		//	 		/**
+		//	 		 * @brief Draw the mesh, for debugging.
+		//	 		 */
+		//	 		void DrawUnionLocalTriangles(const std::string &title,
+		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
+		//
+		//
+		//	 		/**
+		//	 		 * @brief Draw the mesh, for debugging.
+		//	 		 */
+		//	 		void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
+		//
+		//
+		//	 		/**
+		//	 		 * @brief Draw the point clouds, for debugging.
+		//	 		 */
+		//	 		void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, int k, int center_index);
+		//
+		//
+		//	 		void DrawTwoTangentPoints(const std::string &title,
+		//	 								  const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
+		//	 								  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr,
+		//	 								  int k,
+		//	 								  int center_index);
+		//	 	}  // namespace visualize
+	}  // namespace debug
 }  // namespace tool
 
 

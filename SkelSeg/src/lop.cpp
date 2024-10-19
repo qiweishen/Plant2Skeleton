@@ -31,16 +31,13 @@ Eigen::MatrixXd LOPCalibrate(const Eigen::MatrixXd &cloud, const Eigen::MatrixXd
 	Timer timer;
 	const int n = skeleton_cloud.rows();
 	Eigen::MatrixXd new_skeleton_cloud(n, 3);
-	std::vector<geometrycentral::Vector3> original_cloud_points = tool::utility::Matrix2Vector<geometrycentral::Vector3>(cloud);
-	geometrycentral::NearestNeighborFinder original_cloud_finder(original_cloud_points);
-	std::vector<geometrycentral::Vector3> skeleton_cloud_points = tool::utility::Matrix2Vector<geometrycentral::Vector3>(skeleton_cloud);
+	std::vector<std::vector<double>> original_cloud_vertices = tool::utility::Matrix2Vector<std::vector<double>>(cloud);
+	KDTree kdtree(original_cloud_vertices);
 	double h = config["Preprocess"]["Normalize_Diagonal_Length"].get<double>() * config["Skeleton_Building"]["LOP_Sphere_Radius_Ratio"].get<double>();
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(n, skeleton_cloud, kdtree, h, new_skeleton_cloud, cloud, Eigen::Dynamic)
 	for (int i = 0; i < n; ++i) {
 		Eigen::Vector3d query_point = skeleton_cloud.row(i);
-		geometrycentral::Vector3 query_point_gc = skeleton_cloud_points[i];
-		std::vector<size_t> original_point_cloud_indices;
-		original_point_cloud_indices = original_cloud_finder.radiusSearch(query_point_gc, h);
+		std::vector<size_t> original_point_cloud_indices = kdtree.neighborhood_indices({ query_point.x(), query_point.y(), query_point.z() }, h);
 		// No need to move the skeleton point if it does not have any neighbors in the original point cloud.
 		if (original_point_cloud_indices.empty()) {
 			new_skeleton_cloud.row(i) = cloud.row(i);

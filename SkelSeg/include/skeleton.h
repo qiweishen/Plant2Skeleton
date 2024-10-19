@@ -1,7 +1,6 @@
 #ifndef SKELETON_H
 #define SKELETON_H
 
-
 #include <Eigen/Core>
 #include <algorithm>
 #include <chrono>
@@ -21,7 +20,6 @@
 #include <unordered_set>
 #include <utility/logger.h>
 #include <utility/timer.h>
-#include <utility>
 #include <vector>
 
 
@@ -57,7 +55,7 @@ private:
 	Eigen::MatrixXd cloud_;
 	nlohmann::json config_;
 
-	int pts_num_ = static_cast<int>(cloud_.rows());
+	const int pts_num_ = static_cast<int>(cloud_.rows());
 	std::vector<int> tip_indices_;
 	double threshold_edge_length_ = -1.0;
 	std::vector<double> faces_area_;
@@ -78,21 +76,23 @@ private:
 	const double max_WL_ = 9.0;
 	const int k_neighbors_distance_constraint_ = 4;
 	const double WD_ = 9.0;
-	const int k_neighbors_dual_area_ = 8;
 
-	// Recommend to change the following parameters in the ../configue.json file
+	// Recommend to change the following parameters in the ../configure.json file
 	const double diagonal_length_ = config_["Preprocess"]["Normalize_Diagonal_Length"].get<double>();
+	const bool use_knn_search_ = config_["Constraint_Laplacian_Operator"]["KNN_Search"].get<bool>();
 	int k_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_k"].get<int>();
 	const int delta_k_ = config_["Constraint_Laplacian_Operator"]["Delta_k"].get<int>();
 	const int max_k_ = config_["Constraint_Laplacian_Operator"]["Max_k"].get<int>();
+	double radius_neighbor_ = config_["Constraint_Laplacian_Operator"]["Initial_Radius_Ratio"].get<double>() * diagonal_length_;
+	const double delta_radius_ = config_["Constraint_Laplacian_Operator"]["Delta_Radius_Ratio"].get<double>() * diagonal_length_;
+	const double max_radius_ = config_["Constraint_Laplacian_Operator"]["Max_Radius_Ratio"].get<double>() * diagonal_length_;
 	const double fix_eigen_ratio_ = config_["Adaptive_Contraction"]["Smooth_Sigma_Threshold"].get<double>();
 	const double sigma_radius_ = config_["Adaptive_Contraction"]["Sigma_Sphere_Radius_Ratio"].get<double>() * diagonal_length_;
 	const int sigma_k_ = config_["Adaptive_Contraction"]["Sigma_KNN_Search"].get<int>();
 	const double max_distance_ = config_["Adaptive_Contraction"]["Max_Distance_Ratio"].get<double>() * diagonal_length_;
 	const int max_iteration_time_ = config_["Terminate_Condition"]["Max_Iteration"].get<int>();
 	const double contraction_threshold_ = config_["Terminate_Condition"]["Convergence_Threshold"].get<double>();
-	const std::filesystem::path output_path_ = config_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
-	const bool binary_format_ = config_["Output_Settings"]["Output_PLY_File_DataFormat"].get<std::string>() == "Binary";
+	const std::filesystem::path output_path_ = config_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>() / ".iterations";
 
 
 	void InitializeParameters(const Eigen::MatrixXd &cloud);
@@ -101,6 +101,8 @@ private:
 
 	void FindTipPoints(const Eigen::MatrixXd &cloud, geometrycentral::pointcloud::PointCloud &gc_cloud,
 					   geometrycentral::pointcloud::PointPositionGeometry &gc_geom);
+
+	void UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cloud, geometrycentral::pointcloud::PointPositionGeometry &gc_geom);
 
 	void FindEdgeThreshold(geometrycentral::pointcloud::PointCloud &gc_cloud, geometrycentral::pointcloud::PointPositionGeometry &gc_geom);
 
@@ -112,12 +114,16 @@ private:
 
 	void GetMeanVertexDualArea(const Eigen::MatrixXd &cloud);
 
-	void ComputeSigma(const Eigen::MatrixXd &cloud, const std::string &neighborhood);
-
-	void UpdateKNeighbors();
+	void ComputeSigma(const Eigen::MatrixXd &cloud);
 
 	Eigen::MatrixXd ContractionIteration();
 };
+
+
+
+namespace geometrycentral::addition {
+	void UnrequireAllQuantities(geometrycentral::pointcloud::PointPositionGeometry &gc_geom);
+}
 
 
 

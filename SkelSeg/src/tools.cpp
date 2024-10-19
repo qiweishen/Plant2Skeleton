@@ -55,7 +55,7 @@ namespace tool {
 				semantic_labels.resize(num_samples);
 				instance_labels.resize(num_samples);
 				// Parallel extraction of point coordinates and labels
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(num_samples, points, final_cloud_map, semantic, instance, semantic_labels, instance_labels)
 				for (int idx = 0; idx < num_samples; ++idx) {
 					auto vert = easy3d::PointCloud::Vertex(idx);
 					const easy3d::vec3 &point = points[vert];
@@ -67,7 +67,7 @@ namespace tool {
 				}
 			} else {
 				// Parallel extraction of point coordinates without labels
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(num_samples, points, final_cloud_map)
 				for (int idx = 0; idx < num_samples; ++idx) {
 					auto vert = easy3d::PointCloud::Vertex(idx);
 					const easy3d::vec3 &point = points[vert];
@@ -92,14 +92,15 @@ namespace tool {
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Semantic_Label_Name"].get<std::string>(),
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Instance_Label_Name"].get<std::string>()
 				};
-				io::SavePointCloudToPLY(final_cloud, output_folder / "0_Input.ply", semantic_labels, instance_labels, label_names);
+				io::SavePointCloudToPLY(final_cloud, output_folder / "1_Input.ply", semantic_labels, instance_labels, label_names);
 			} else {
-				io::SavePointCloudToPLY(final_cloud, output_folder / "0_Input.ply");
+				io::SavePointCloudToPLY(final_cloud, output_folder / "1_Input.ply");
 			}
 			double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
 			Logger::Instance().Log(
-					std::format("Original Point Cloud preprocessing has been completed! Input Point Cloud (#vertices: {}). Elapsed time: {:.6f}s",
-								num_samples, elapsed),
+					std::format(
+							"Original Point Cloud preprocessing has been completed! Input Point Cloud (#vertices: {}). Total elapsed time: {:.6f}s",
+							num_samples, elapsed),
 					LogLevel::INFO, IndentLevel::ONE, true, false);
 		}
 
@@ -117,17 +118,17 @@ namespace tool {
 										original_num_vertices, num_samples),
 							LogLevel::ERROR);
 				} else if (original_num_vertices > num_samples) {
-					std::unique_ptr<easy3d::KdTreeSearch> kdtreePtr = std::make_unique<easy3d::KdTreeSearch_ETH>(&cloud);
+					std::shared_ptr<easy3d::KdTreeSearch> kdtreePtr = std::make_shared<easy3d::KdTreeSearch_ETH>(&cloud);
 					double initial_epsilon = easy3d::PointCloudSimplification::average_space(&cloud, kdtreePtr.get()) * 10.0;
 					std::vector<easy3d::PointCloud::Vertex> indices_to_delete =
 							easy3d::PointCloudSimplification::uniform_simplification(&cloud, static_cast<float>(initial_epsilon), kdtreePtr.get());
-					// Adjust epsilon until the number of points after deletion is within [num_points, num_points + 512]
+					// Adjust epsilon until the number of points after deletion is within [num_points, num_points * 1.01]
 					while (!(num_samples <= original_num_vertices - static_cast<int>(indices_to_delete.size()) &&
-							 num_samples + 512 >= original_num_vertices - static_cast<int>(indices_to_delete.size()))) {
+							 num_samples * 1.01 >= original_num_vertices - static_cast<int>(indices_to_delete.size()))) {
 						if (num_samples < original_num_vertices - static_cast<int>(indices_to_delete.size())) {
-							initial_epsilon *= 1.1;
+							initial_epsilon *= 1.10;
 						} else {
-							initial_epsilon *= 0.9;
+							initial_epsilon *= 0.90;
 						}
 						indices_to_delete = easy3d::PointCloudSimplification::uniform_simplification(&cloud, static_cast<float>(initial_epsilon),
 																									 kdtreePtr.get());
@@ -173,8 +174,8 @@ namespace tool {
 				Logger::Instance().Log(std::format("Unsupported file format: {}", file_path.extension().string()), LogLevel::ERROR);
 			}
 			Eigen::MatrixXd cloud = utility::Vector2Matrix(cloud_vertices);
-			SavePointCloudToPLY(cloud, output_folder_path / "Original.ply", true);
-			config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "Original.ply";
+			SavePointCloudToPLY(cloud, output_folder_path / "0_Original.ply");
+			config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 			double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
 			Logger::Instance().Log(
 					std::format("Original Point Cloud (#vertex: {}) has been loaded and a backup PLY file has been generated! Elapsed time: {:.6f}s",
@@ -185,7 +186,6 @@ namespace tool {
 
 
 		void FormatPointCloud(nlohmann::json &config) {
-			Logger::Instance().Log("Start load Original Point Cloud and its labels", LogLevel::INFO, IndentLevel::ONE, true, false);
 			Timer timer;
 			if (std::filesystem::path file_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
 				file_path.extension() == ".ply") {
@@ -201,19 +201,18 @@ namespace tool {
 		}
 
 
-		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, bool binary) {
-			if (cloud.rows() == 0 || cloud.cols() != 3) {
-				Logger::Instance().Log(std::format("Invalid Point Cloud dimensions ({}, {})", cloud.rows(), cloud.cols()), LogLevel::ERROR);
-			}
+		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path) {
+			size_t num_pts = cloud.rows();
 			std::vector<plywoot::Comment> comments;
 			comments.emplace_back(2, PLY_COMMENT);
 			plywoot::OStream ply_os{ isPlyFormatBinary ? plywoot::PlyFormat::BinaryLittleEndian : plywoot::PlyFormat::Ascii, comments };
 			const plywoot::PlyProperty x{ "x", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty y{ "y", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty z{ "z", plywoot::PlyDataType::Double };
-			const plywoot::PlyElement vertex{ "vertex", static_cast<std::size_t>(cloud.rows()), { x, y, z } };
+			const plywoot::PlyElement vertex{ "vertex", num_pts, { x, y, z } };
 			using VertexLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<double, 3>>;
-			ply_os.add(vertex, VertexLayout{ utility::Matrix2Vector<Eigen::Vector3d>(cloud) });
+			std::vector<Eigen::Vector3d> cloud_vertices = utility::Matrix2Vector<Eigen::Vector3d>(cloud);
+			ply_os.add(vertex, VertexLayout{ cloud_vertices });
 			std::ofstream ply_ofs{ file_path };
 			if (!ply_ofs) {
 				Logger::Instance().Log(std::format("Failed to open file ({}) for writing", file_path.string()), LogLevel::ERROR);
@@ -221,12 +220,12 @@ namespace tool {
 			ply_os.write(ply_ofs);
 		}
 
-		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, std::vector<double> &property,
-								 const std::string &property_name, bool binary) {
-			if (cloud.rows() == 0 || cloud.rows() != property.size()) {
-				Logger::Instance().Log(
-						std::format("Point cloud (#vertex {}) or property (#size {}) has invalid sizes", cloud.rows(), property.size()),
-						LogLevel::ERROR);
+		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, const std::vector<double> &property,
+								 const std::string &property_name) {
+			size_t num_pts = cloud.rows();
+			if (num_pts != property.size()) {
+				Logger::Instance().Log(std::format("Point cloud (#vertex {}) or property (#size {}) has invalid sizes", num_pts, property.size()),
+									   LogLevel::ERROR);
 			}
 			std::vector<plywoot::Comment> comments;
 			comments.emplace_back(2, PLY_COMMENT);
@@ -235,15 +234,14 @@ namespace tool {
 			const plywoot::PlyProperty y{ "y", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty z{ "z", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty vertex_property{ property_name, plywoot::PlyDataType::Double };
-			plywoot::PlyElement vertex{ "vertex", static_cast<std::size_t>(cloud.rows()), { x, y, z, vertex_property } };
+			plywoot::PlyElement vertex{ "vertex", num_pts, { x, y, z, vertex_property } };
 			using VertexLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<double, 4>>;
 			std::vector<Eigen::Vector3d> cloud_vertices = utility::Matrix2Vector<Eigen::Vector3d>(cloud);
-			std::vector<Eigen::Vector4d> data;
-			data.reserve(cloud.rows());
-			for (int i = 0; i < cloud.rows(); ++i) {
-				data.emplace_back(cloud_vertices[i](0), cloud_vertices[i](1), cloud_vertices[i](2), property[i]);
+			std::vector<Eigen::Vector4d> vert_data(num_pts);
+			for (int i = 0; i < num_pts; ++i) {
+				vert_data[i] = Eigen::Vector4d(cloud_vertices[i].x(), cloud_vertices[i].y(), cloud_vertices[i].z(), property[i]);
 			}
-			ply_os.add(vertex, VertexLayout{ data });
+			ply_os.add(vertex, VertexLayout{ vert_data });
 			std::ofstream ply_ofs{ file_path };
 			if (!ply_ofs) {
 				Logger::Instance().Log(std::format("Failed to open file ({}) for writing", file_path.string()), LogLevel::ERROR);
@@ -251,11 +249,12 @@ namespace tool {
 			ply_os.write(ply_ofs);
 		}
 
-		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, std::vector<int> &label_one,
-								 std::vector<int> &label_two, const std::pair<std::string, std::string> &label_names, bool binary) {
-			if (cloud.rows() == 0 || cloud.rows() != label_one.size() || cloud.rows() != label_two.size()) {
+		void SavePointCloudToPLY(const Eigen::MatrixXd &cloud, const std::filesystem::path &file_path, const std::vector<int> &label_one,
+								 const std::vector<int> &label_two, const std::pair<std::string, std::string> &label_names) {
+			size_t num_pts = cloud.rows();
+			if (num_pts != label_one.size() || num_pts != label_two.size()) {
 				Logger::Instance().Log(std::format("Point cloud (#vertex {}), label one (#size {}), or label two (#size {}) has invalid sizes",
-												   cloud.rows(), label_one.size(), label_two.size()),
+												   num_pts, label_one.size(), label_two.size()),
 									   LogLevel::ERROR);
 			}
 			std::vector<plywoot::Comment> comments;
@@ -266,21 +265,13 @@ namespace tool {
 			const plywoot::PlyProperty z{ "z", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty vertex_label_one{ label_names.first, plywoot::PlyDataType::Int };
 			const plywoot::PlyProperty vertex_label_two{ label_names.second, plywoot::PlyDataType::Int };
-			plywoot::PlyElement vertex{ "vertex", static_cast<std::size_t>(cloud.rows()), { x, y, z, vertex_label_one, vertex_label_two } };
+			plywoot::PlyElement vertex{ "vertex", num_pts, { x, y, z, vertex_label_one, vertex_label_two } };
 			using VertexLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<double, 3>, int, int>;
-			struct DataPoint {
-				Eigen::Vector3d pos;
-				int label1;
-				int label2;
-				DataPoint(Eigen::Vector3d vec, int l1, int l2) : pos(std::move(vec)), label1(l1), label2(l2) {}
-			};
-			std::vector<DataPoint> data;
-			data.reserve(cloud.rows());
-			for (int i = 0; i < cloud.rows(); ++i) {
-				Eigen::Vector3d vec = cloud.row(i);
-				data.emplace_back(vec, label_one[i], label_two[i]);
+			std::vector<internal::DataPoint> vert_data(num_pts);
+			for (int i = 0; i < num_pts; ++i) {
+				vert_data[i] = internal::DataPoint(cloud.row(i), label_one[i], label_two[i]);
 			}
-			ply_os.add(vertex, VertexLayout{ data });
+			ply_os.add(vertex, VertexLayout{ vert_data });
 			std::ofstream ply_ofs{ file_path };
 			if (!ply_ofs) {
 				Logger::Instance().Log(std::format("Failed to open file ({}) for writing", file_path.string()), LogLevel::ERROR);
@@ -289,13 +280,12 @@ namespace tool {
 		}
 
 
-		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path, bool binary) {
+		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path) {
 			size_t num_pts = num_vertices(graph);
 			size_t num_edges = boost::num_edges(graph);
-			std::vector<Eigen::Vector3d> cloud_vertices;
-			cloud_vertices.resize(num_pts);
+			std::vector<Eigen::Vector3d> cloud_vertices(num_pts);
 			for (int i = 0; i < num_pts; ++i) {
-				cloud_vertices.at(i) = { graph[i].x(), graph[i].y(), graph[i].z() };
+				cloud_vertices[i] = Eigen::Vector3d(graph[i].x(), graph[i].y(), graph[i].z());
 			}
 			std::vector<Eigen::Vector2i> edges;
 			edges.reserve(num_edges);
@@ -311,12 +301,12 @@ namespace tool {
 			const plywoot::PlyProperty y{ "y", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty z{ "z", plywoot::PlyDataType::Double };
 			const plywoot::PlyElement vertex{ "vertex", num_pts, { x, y, z } };
+			using VertexLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<double, 3>>;
+			ply_os.add(vertex, VertexLayout{ cloud_vertices });
 			const plywoot::PlyProperty source{ "vertex1", plywoot::PlyDataType::Int };
 			const plywoot::PlyProperty target{ "vertex2", plywoot::PlyDataType::Int };
 			const plywoot::PlyElement edge{ "edge", num_edges, { source, target } };
-			using VertexLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<double, 3>>;
 			using EdgeLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<int, 2>>;
-			ply_os.add(vertex, VertexLayout{ cloud_vertices });
 			ply_os.add(edge, EdgeLayout{ edges });
 			std::ofstream ply_ofs{ file_path };
 			if (!ply_ofs) {
@@ -325,36 +315,28 @@ namespace tool {
 			ply_os.write(ply_ofs);
 		}
 
-		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path, const std::vector<int> &vertex_instance_labels,
-									bool binary) {
+		void SaveSkeletonGraphToPLY(const Boost_Graph &graph, const std::filesystem::path &file_path, const std::vector<int> &vertex_semantic_labels,
+									const std::vector<int> &vertex_instance_labels) {
 			size_t num_pts = num_vertices(graph);
 			size_t num_edges = boost::num_edges(graph);
-			std::vector<Eigen::Vector3d> cloud_vertices;
-			cloud_vertices.resize(num_pts);
-			std::vector<int> vertex_semantic_labels;
-			vertex_semantic_labels.reserve(num_pts);
+			std::vector<Eigen::Vector3d> cloud_vertices(num_pts);
 			for (int i = 0; i < num_pts; ++i) {
-				cloud_vertices.at(i) = { graph[i].x(), graph[i].y(), graph[i].z() };
-				if (vertex_instance_labels.at(i) == -1) {	 // According to graph.h, the shoot vertex instance label is -1
-					vertex_semantic_labels.emplace_back(0);	 // Shoot vertex
-				} else {
-					vertex_semantic_labels.emplace_back(1);	 // Leaf vertex
-				}
+				cloud_vertices[i] = Eigen::Vector3d(graph[i].x(), graph[i].y(), graph[i].z());
 			}
 			std::vector<Eigen::Vector2i> edges;
 			edges.reserve(num_edges);
 			std::vector<int> edge_semantic_labels;
-			edge_semantic_labels.resize(num_edges);
+			edge_semantic_labels.reserve(num_edges);
 			std::vector<int> edge_instance_labels;
 			edge_instance_labels.reserve(num_edges);
 			for (auto ei = boost::edges(graph).first; ei != boost::edges(graph).second; ++ei) {
 				auto source = boost::source(*ei, graph);
 				auto target = boost::target(*ei, graph);
 				edges.emplace_back(static_cast<int>(source), static_cast<int>(target));
-				int source_instance_label = vertex_instance_labels.at(source);
-				int target_instance_label = vertex_instance_labels.at(target);
 				int source_semantic_label = vertex_semantic_labels.at(source);
 				int target_semantic_label = vertex_semantic_labels.at(target);
+				int source_instance_label = vertex_instance_labels.at(source);
+				int target_instance_label = vertex_instance_labels.at(target);
 				if (source_instance_label == target_instance_label) {
 					edge_instance_labels.emplace_back(source_instance_label);
 					edge_semantic_labels.emplace_back(source_semantic_label);
@@ -363,8 +345,8 @@ namespace tool {
 					edge_instance_labels.emplace_back(source_instance_label == -1 ? target_instance_label : source_instance_label);
 					edge_semantic_labels.emplace_back(source_instance_label == -1 ? target_semantic_label : source_semantic_label);
 				} else {
-					Logger::Instance().Log(std::format("Error assigning edge label (#source label {}, #target label {}).", source_instance_label,
-													   target_instance_label),
+					Logger::Instance().Log(std::format("Error assigning edge label (#source instance label {}, #target instance label {}).",
+													   source_instance_label, target_instance_label),
 										   LogLevel::ERROR);
 				}
 			}
@@ -374,37 +356,25 @@ namespace tool {
 			const plywoot::PlyProperty x{ "x", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty y{ "y", plywoot::PlyDataType::Double };
 			const plywoot::PlyProperty z{ "z", plywoot::PlyDataType::Double };
-			const plywoot::PlyProperty vertex_semantic_label{ "semantic label", plywoot::PlyDataType::Int };
-			const plywoot::PlyProperty vertex_instance_label{ "instance label", plywoot::PlyDataType::Int };
-			const plywoot::PlyElement vertex{ "vertex", num_pts, { x, y, z } };
-			const plywoot::PlyProperty vertex1{ "vertex1", plywoot::PlyDataType::Int };
-			const plywoot::PlyProperty vertex2{ "vertex2", plywoot::PlyDataType::Int };
-			const plywoot::PlyElement edge{ "edge", num_edges, { vertex1, vertex2 } };
+			const plywoot::PlyProperty vertex_semantic_label{ "semantic", plywoot::PlyDataType::Int };
+			const plywoot::PlyProperty vertex_instance_label{ "instance", plywoot::PlyDataType::Int };
+			const plywoot::PlyElement vertex{ "vertex", num_pts, { x, y, z, vertex_semantic_label, vertex_instance_label } };
 			using VertexLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<double, 3>, int, int>;
-			struct DataPoint {
-				Eigen::Vector3d pos;
-				int label1;
-				int label2;
-				DataPoint(Eigen::Vector3d vec, int l1, int l2) : pos(std::move(vec)), label1(l1), label2(l2) {}
-			};
-			std::vector<DataPoint> vert_data;
-			vert_data.reserve(num_pts);
+			std::vector<internal::DataPoint> vert_data(num_pts);
 			for (int i = 0; i < num_pts; ++i) {
-				vert_data.emplace_back(cloud_vertices[i], vertex_instance_labels[i], 0);
-			}
-			using EdgeLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<int, 2>, int, int>;
-			struct DataEdge {
-				Eigen::Vector2i idx;
-				int label1;
-				int label2;
-				DataEdge(Eigen::Vector2i vec, int l1, int l2) : idx(std::move(vec)), label1(l1), label2(l2) {}
-			};
-			std::vector<DataEdge> edges_data;
-			edges_data.reserve(num_edges);
-			for (int i = 0; i < num_edges; ++i) {
-				edges_data.emplace_back(edges[i], edge_semantic_labels[i], edge_instance_labels[i]);
+				vert_data[i] = internal::DataPoint(cloud_vertices[i], vertex_semantic_labels[i], vertex_instance_labels[i]);
 			}
 			ply_os.add(vertex, VertexLayout{ vert_data });
+			const plywoot::PlyProperty vertex1{ "vertex1", plywoot::PlyDataType::Int };
+			const plywoot::PlyProperty vertex2{ "vertex2", plywoot::PlyDataType::Int };
+			const plywoot::PlyProperty edge_semantic_label{ "semantic", plywoot::PlyDataType::Int };
+			const plywoot::PlyProperty edge_instance_label{ "instance", plywoot::PlyDataType::Int };
+			const plywoot::PlyElement edge{ "edge", num_edges, { vertex1, vertex2, edge_semantic_label, edge_instance_label } };
+			using EdgeLayout = plywoot::reflect::Layout<plywoot::reflect::Pack<int, 2>, int, int>;
+			std::vector<internal::DataEdge> edges_data(num_edges);
+			for (int i = 0; i < num_edges; ++i) {
+				edges_data[i] = internal::DataEdge(edges[i], edge_semantic_labels[i], edge_instance_labels[i]);
+			}
 			ply_os.add(edge, EdgeLayout{ edges_data });
 			std::ofstream ply_ofs{ file_path };
 			if (!ply_ofs) {
@@ -463,14 +433,13 @@ namespace tool {
 								LogLevel::ERROR);
 					}
 					Eigen::MatrixXd cloud = utility::Vector2Matrix(cloud_vertices);
-					SavePointCloudToPLY(cloud, output_folder_path / "Original.ply", semantic_labels, instance_labels, { "semantic", "instance" },
-										true);
+					SavePointCloudToPLY(cloud, output_folder_path / "0_Original.ply", semantic_labels, instance_labels, { "semantic", "instance" });
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Semantic_Label_Name"] = "semantic";
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Instance_Label_Name"] = "instance";
-					config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "Original.ply";
+					config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 				} else {
-					copy_file(file_path, output_folder_path / "Original.ply", std::filesystem::copy_options::overwrite_existing);
-					config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "Original.ply";
+					copy_file(file_path, output_folder_path / "0_Original.ply", std::filesystem::copy_options::overwrite_existing);
+					config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 				}
 			}
 
@@ -501,9 +470,8 @@ namespace tool {
 											   LogLevel::ERROR);
 					}
 					Eigen::MatrixXd cloud = utility::Vector2Matrix(cloud_vertices);
-					SavePointCloudToPLY(cloud, output_folder_path / "Original.ply", semantic_labels, instance_labels, { "semantic", "instance" },
-										true);
-					config["Input_Settings"]["Point_Cloud_File_Path"] = output_folder_path / "Original.ply";
+					SavePointCloudToPLY(cloud, output_folder_path / "0_Original.ply", semantic_labels, instance_labels, { "semantic", "instance" });
+					config["Input_Settings"]["Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 				} else {
 					std::filesystem::path file_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
 					std::filesystem::path output_folder_path = config["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
@@ -511,13 +479,11 @@ namespace tool {
 					std::vector<Eigen::VectorXd> data = LoadDataFromTXTXYZ<Eigen::VectorXd>(file_path, total_columns);
 					int semantic_label_index = config["Input_Settings"]["TXT_XYZ_Format"]["Semantic_Labels_Index"].get<int>();
 					int instance_label_index = config["Input_Settings"]["TXT_XYZ_Format"]["Instance_Labels_Index"].get<int>();
-					std::vector<int> semantic_labels;
-					semantic_labels.reserve(data.size());
-					std::vector<int> instance_labels;
-					instance_labels.reserve(data.size());
+					std::vector<int> semantic_labels(data.size());
+					std::vector<int> instance_labels(data.size());
 					Eigen::MatrixXd cloud(data.size(), 3);
 					double *cloud_data = cloud.data();
-#pragma omp parallel for
+#pragma omp parallel for default(none) shared(data, cloud_data, semantic_labels, instance_labels, semantic_label_index, instance_label_index)
 					for (int i = 0; i < data.size(); ++i) {
 						const Eigen::VectorXd &row = data[i];
 						cloud_data[i * 3 + 0] = row[0];
@@ -526,11 +492,10 @@ namespace tool {
 						semantic_labels[i] = static_cast<int>(row[semantic_label_index]);
 						instance_labels[i] = static_cast<int>(row[instance_label_index]);
 					}
-					SavePointCloudToPLY(cloud, output_folder_path / "Original.ply", semantic_labels, instance_labels, { "semantic", "instance" },
-										true);
+					SavePointCloudToPLY(cloud, output_folder_path / "0_Original.ply", semantic_labels, instance_labels, { "semantic", "instance" });
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Semantic_Label_Name"] = "semantic";
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Instance_Label_Name"] = "instance";
-					config["Input_Settings"]["Point_Cloud_File_Path"] = output_folder_path / "Original.ply";
+					config["Input_Settings"]["Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 				}
 			}
 
@@ -683,6 +648,8 @@ namespace tool {
 			}
 			return mat;
 		}
+		template Eigen::MatrixXd Vector2Matrix(const std::vector<Eigen::Vector3d> &vec);
+		template Eigen::MatrixXd Vector2Matrix(const std::vector<Eigen::VectorXd> &vec);
 		Eigen::MatrixXd Vector2Matrix(const std::vector<easy3d::vec3> &vec) {
 			auto num_vertices = static_cast<Eigen::Index>(vec.size());
 			Eigen::MatrixXd mat(num_vertices, 3);
@@ -693,8 +660,6 @@ namespace tool {
 			}
 			return mat;
 		}
-		template Eigen::MatrixXd Vector2Matrix(const std::vector<Eigen::Vector3d> &vec);
-		template Eigen::MatrixXd Vector2Matrix(const std::vector<Eigen::VectorXd> &vec);
 
 
 		template<typename T>
@@ -704,26 +669,54 @@ namespace tool {
 			if (num_cols != 3) {
 				Logger::Instance().Log(std::format("Invalid Point Cloud dimensions ({}, {})", num_rows, num_cols), LogLevel::ERROR);
 			}
-			std::vector<T> vec;
-			vec.reserve(num_rows);
+			std::vector<T> vec(num_rows);
 			// Transform the matrix to row-major order for better performance
 			Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> cloud_row_major = mat;
-			for (Eigen::Index i = 0; i < num_rows; ++i) {
-				const double *row_ptr = cloud_row_major.data() + i * num_cols;
-				vec.emplace_back(row_ptr[0], row_ptr[1], row_ptr[2]);
+			if constexpr (std::is_same_v<T, std::vector<double>>) {
+				for (Eigen::Index i = 0; i < num_rows; ++i) {
+					const double *row_ptr = cloud_row_major.data() + i * num_cols;
+					vec[i] = { row_ptr[0], row_ptr[1], row_ptr[2] };
+				}
+			} else {
+				for (Eigen::Index i = 0; i < num_rows; ++i) {
+					const double *row_ptr = cloud_row_major.data() + i * num_cols;
+					vec[i] = T(row_ptr[0], row_ptr[1], row_ptr[2]);
+				}
 			}
 			return vec;
 		}
 		template std::vector<easy3d::vec3> Matrix2Vector<easy3d::vec3>(const Eigen::MatrixXd &mat);
 		template std::vector<Eigen::Vector3d> Matrix2Vector<Eigen::Vector3d>(const Eigen::MatrixXd &mat);
+		template std::vector<std::vector<double>> Matrix2Vector<std::vector<double>>(const Eigen::MatrixXd &mat);
 		template std::vector<geometrycentral::Vector3> Matrix2Vector<geometrycentral::Vector3>(const Eigen::MatrixXd &mat);
 
 
-		namespace internal {}  // namespace internal
+		std::vector<std::vector<size_t>> KNNSearch(const Eigen::MatrixXd &cloud, const size_t k) {
+			std::vector<std::vector<double>> cloud_vertices = Matrix2Vector<std::vector<double>>(cloud);
+			KDTree kdtree(cloud_vertices);
+			std::vector<std::vector<size_t>> result(cloud_vertices.size());
+			for (size_t i = 0; i < cloud_vertices.size(); i++) {
+				std::vector<size_t> indices = kdtree.nearest_indices(cloud_vertices[i], k + 1);
+				indices.erase(std::remove(indices.begin(), indices.end(), i), indices.end());
+				result[i] = indices;
+			}
+			return result;
+		}
+
+
+		std::vector<std::vector<size_t>> RadiusSearch(const Eigen::MatrixXd &cloud, const double radius) {
+			std::vector<std::vector<double>> cloud_vertices = Matrix2Vector<std::vector<double>>(cloud);
+			KDTree kdtree(cloud_vertices);
+			std::vector<std::vector<size_t>> result(cloud_vertices.size());
+			for (size_t i = 0; i < cloud_vertices.size(); i++) {
+				result[i] = kdtree.neighborhood_indices(cloud_vertices[i], radius);
+			}
+			return result;
+		}
 
 
 		// TODO: KDTree is built by nanoflann, consider replace it by ETH_Kd_Tree or other modern libs for better performance
-		std::vector<std::vector<size_t>> KNNSearch(const Eigen::MatrixXd &cloud, const size_t k) {
+		std::vector<std::vector<size_t>> SKNNSearch(const Eigen::MatrixXd &cloud, const size_t k) {
 			std::vector<geometrycentral::Vector3> points = Matrix2Vector<geometrycentral::Vector3>(cloud);
 			geometrycentral::NearestNeighborFinder finder(points);
 			std::vector<std::vector<size_t>> result;
@@ -735,7 +728,7 @@ namespace tool {
 
 
 		// TODO: KDTree is built by nanoflann, consider replace it by ETH_Kd_Tree for better performance
-		std::vector<std::vector<size_t>> RadiusSearch(const Eigen::MatrixXd &cloud, const double radius) {
+		std::vector<std::vector<size_t>> SRadiusSearch(const Eigen::MatrixXd &cloud, const double radius) {
 			std::vector<geometrycentral::Vector3> points = Matrix2Vector<geometrycentral::Vector3>(cloud);
 			geometrycentral::NearestNeighborFinder finder(points);
 			std::vector<std::vector<size_t>> result;
@@ -799,7 +792,7 @@ namespace tool {
 			// You can use a random starting point to avoid degenerate cases
 			size_t farthest_index = 42 % num_points;  // We use 42 as the seed for reproducibility
 			for (size_t i = 0; i < num_samples; ++i) {
-				selected_indices.push_back(farthest_index);
+				selected_indices[i] = farthest_index;
 				const Eigen::RowVectorXd &selected_point = cloud.row(static_cast<int>(farthest_index));
 				Eigen::MatrixXd diff = cloud.rowwise() - selected_point;
 				Eigen::VectorXd sq_distances = diff.rowwise().squaredNorm();
@@ -835,15 +828,13 @@ namespace tool {
 				for (int i = 0; i < num_vertices(graph); ++i) {
 					skeleton_cloud.row(i) = graph[i];
 				}
-				std::vector<geometrycentral::Vector3> skeleton_points = Matrix2Vector<geometrycentral::Vector3>(skeleton_cloud);
-				geometrycentral::NearestNeighborFinder skeleton_finder(skeleton_points);
-				std::vector<int> nearest_skeleton_index;
-				nearest_skeleton_index.reserve(cloud.rows());
+				std::vector<std::vector<double>> skeleton_vertices = Matrix2Vector<std::vector<double>>(skeleton_cloud);
+				KDTree kdtree(skeleton_vertices);
+				std::vector<int> nearest_skeleton_index(cloud.rows());
 				for (int i = 0; i < cloud.rows(); ++i) {
-					std::vector<size_t> indices;
-					geometrycentral::Vector3 query_point = { (cloud) (i, 0), (cloud) (i, 1), (cloud) (i, 2) };
-					indices = skeleton_finder.kNearest(query_point, 1);
-					nearest_skeleton_index.emplace_back(indices[0]);
+					std::vector<double> query_point = { (cloud) (i, 0), (cloud) (i, 1), (cloud) (i, 2) };
+					size_t index = kdtree.nearest_index(query_point);
+					nearest_skeleton_index[i] = static_cast<int>(index);
 				}
 				// Assign points to their corresponding classes based on nearest skeleton index
 				for (int i = 0; i < nearest_skeleton_index.size(); ++i) {
@@ -862,438 +853,453 @@ namespace tool {
 	}  // namespace utility
 
 
-	// namespace debug {
-	// 	void SaveSphereToPLY(const Eigen::Vector3d &center, double radius, const std::filesystem::path &file_path) {
-	// 		std::vector<Eigen::Vector3d> vertices;
-	// 		std::vector<std::vector<int>> faces;
-	// 		int sectorCount = 36;
-	// 		int stackCount = 18;
-	// 		double x, y, z, xy;	 // vertex position
-	// 		double sectorStep = 2 * M_PI / sectorCount;
-	// 		double stackStep = M_PI / stackCount;
-	// 		double sectorAngle, stackAngle;
-	// 		// Generate vertices
-	// 		for (int i = 0; i <= stackCount; ++i) {
-	// 			stackAngle = M_PI / 2 - i * stackStep;	// starting from pi/2 to -pi/2
-	// 			xy = radius * cos(stackAngle);			// r * cos(u)
-	// 			z = radius * sin(stackAngle);			// r * sin(u)
-	// 			for (int j = 0; j <= sectorCount; ++j) {
-	// 				sectorAngle = j * sectorStep;		// starting from 0 to 2pi
-	// 				x = xy * cos(sectorAngle);			// r * cos(u) * cos(v)
-	// 				y = xy * sin(sectorAngle);			// r * cos(u) * sin(v)
-	// 				vertices.emplace_back(center + Eigen::Vector3d(x, y, z));
-	// 			}
-	// 		}
-	// 		// Generate faces
-	// 		int k1, k2;
-	// 		for (int i = 0; i < stackCount; ++i) {
-	// 			k1 = i * (sectorCount + 1);
-	// 			k2 = k1 + sectorCount + 1;
-	// 			for (int j = 0; j < sectorCount; ++j, ++k1, ++k2) {
-	// 				if (i != 0) {
-	// 					faces.push_back({ k1, k2, k1 + 1 });
-	// 				}
-	// 				if (i != (stackCount - 1)) {
-	// 					faces.push_back({ k1 + 1, k2, k2 + 1 });
-	// 				}
-	// 			}
-	// 		}
-	// 		// Write to ASCII file
-	// 		std::ofstream plyFile(file_path);
-	// 		if (!plyFile.is_open()) {
-	// 			Logger::Instance().Log(std::format("Failed to open file ({}) for writing", file_path.string()), LogLevel::ERROR);
-	// 		}
-	// 		plyFile << std::fixed << std::setprecision(16);
-	// 		// ASCII header
-	// 		plyFile << "ply\n";
-	// 		plyFile << "format ascii 1.0\n";
-	// 		plyFile << "comment object: Sphere\n";
-	// 		plyFile << "element vertex " << vertices.size() << "\n";
-	// 		plyFile << "property double x\n";
-	// 		plyFile << "property double y\n";
-	// 		plyFile << "property double z\n";
-	// 		plyFile << "element face " << faces.size() << "\n";
-	// 		plyFile << "property list uchar int vertex_index\n";
-	// 		plyFile << "end_header\n";
-	// 		// Vertices
-	// 		for (const Eigen::Vector3d &vertex: vertices) {
-	// 			plyFile << vertex.x() << " " << vertex.y() << " " << vertex.z() << "\n";
-	// 		}
-	// 		// Faces
-	// 		for (const std::vector<int> &face: faces) {
-	// 			plyFile << face.size() << " ";
-	// 			for (size_t i = 0; i < face.size(); ++i) {
-	// 				plyFile << face[i];
-	// 				if (i < face.size() - 1)
-	// 					plyFile << " ";
-	// 			}
-	// 			plyFile << "\n";
-	// 		}
-	// 		plyFile.close();
-	// 	}
-	//
-	//
-	// 	namespace visualize {
-	// 		void DrawPointClouds(const std::string &group_title,
-	// 							 const std::vector<std::pair<std::string, std::shared_ptr<Eigen::MatrixXd>>> &cloudsPairs) {
-	// 			if (polyscope::isInitialized()) {
-	// 				try {
-	// 					polyscope::getGroup(group_title);
-	// 				} catch (std::runtime_error &e) {
-	// 					polyscope::createGroup(group_title);
-	// 				}
-	// 				polyscope::Group *group = polyscope::getGroup(group_title);
-	// 				for (int i = 0; i < cloudsPairs.size(); ++i) {
-	// 					const std::string &cloudName = cloudsPairs[i].first;
-	// 					const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
-	// 					std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(*cloudMatrix);
-	// 					polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
-	// 					if (cloudsPairs.size() > 1 && i == 0) {
-	// 						psCloud->setPointRadius(0.001);
-	// 					} else {
-	// 						psCloud->setPointRadius(0.0015);
-	// 					}
-	// 					psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
-	// 					// Add point cloud to the group
-	// 					psCloud->addToGroup(*group);
-	// 				}
-	// 				// Set some options
-	// 				group->setEnabled(true);
-	// 				group->setHideDescendantsFromStructureLists(true);
-	// 				group->setShowChildDetails(true);
-	// 			} else {
-	// 				// Initialize
-	// 				polyscope::init();
-	//
-	// 				// Some options
-	// 				polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-	// 				polyscope::options::groundPlaneHeightFactor = 0.1;
-	// 				polyscope::options::shadowDarkness = 0.3;
-	// 				// A few camera options
-	// 				polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-	// 				polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-	// 				polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-	// 				// Create a group
-	// 				polyscope::Group *group = polyscope::createGroup(group_title);
-	// 				// Register the point clouds
-	// 				for (int i = 0; i < cloudsPairs.size(); ++i) {
-	// 					const std::string &cloudName = cloudsPairs[i].first;
-	// 					const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
-	// 					std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(*cloudMatrix);
-	// 					polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
-	// 					if (cloudsPairs.size() > 1 && i == 0) {
-	// 						psCloud->setPointRadius(0.001);
-	// 					} else {
-	// 						psCloud->setPointRadius(0.0015);
-	// 					}
-	// 					psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
-	// 					// Add point cloud to the group
-	// 					psCloud->addToGroup(*group);
-	// 				}
-	// 				// Set some options
-	// 				group->setEnabled(true);
-	// 				group->setHideDescendantsFromStructureLists(true);
-	// 				group->setShowChildDetails(true);
-	// 			}
-	// 			// Show the GUI
-	// 			polyscope::show();
-	// 		}
-	//
-	//
-	// 		void DrawUnionLocalTriangles(const std::string &title,
-	// 									 const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
-	// 									 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
-	// 			// Initialize
-	// 			polyscope::init();
-	// 			// Some options
-	// 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-	// 			polyscope::options::groundPlaneHeightFactor = 0.1;
-	// 			polyscope::options::shadowDarkness = 0.3;
-	// 			// A few camera options
-	// 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-	// 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-	// 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-	// 			// Generate the local triangles
-	// 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
-	// 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
-	// 			// Make a union mesh
-	// 			std::vector<std::vector<size_t>> allTris = handleToFlatInds(*gc_cloudPtr, localTriPoint);
-	// 			std::vector<geometrycentral::Vector3> posRaw(gc_cloudPtr->nPoints());
-	// 			for (size_t iP = 0; iP < posRaw.size(); iP++) {
-	// 				posRaw[iP] = gc_geom->positions[iP];
-	// 			}
-	// 			// Register the mesh
-	// 			polyscope::registerSurfaceMesh(title, posRaw, allTris);
-	// 			// Show the GUI
-	// 			polyscope::show();
-	// 		}
-	//
-	//
-	// 		void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
-	// 			// Initialize
-	// 			polyscope::init();
-	// 			// Some options
-	// 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-	// 			polyscope::options::groundPlaneHeightFactor = 0.1;
-	// 			polyscope::options::shadowDarkness = 0.3;
-	// 			// A few camera options
-	// 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-	// 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-	// 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-	// 			// Generate the Tufted mesh
-	// 			if (!gc_geom->tuftedMesh) {
-	// 				gc_geom->requireTuftedTriangulation();
-	// 			}
-	// 			// Register the mesh
-	// 			polyscope::registerSurfaceMesh(title, gc_geom->positions, gc_geom->tuftedMesh->getFaceVertexList());
-	// 			// Show the GUI
-	// 			polyscope::show();
-	// 		}
-	//
-	//
-	// 		void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, const int k, const int center_index) {
-	// 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_cloudPtr =
-	// 					std::make_shared<geometrycentral::pointcloud::PointCloud>(cloudPtr->rows());
-	// 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_geom =
-	// 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_cloudPtr);
-	// 			std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2Vector<geometrycentral::Vector3>(*cloudPtr);
-	// 			for (int i = 0; i < cloudPtr->rows(); ++i) {
-	// 				gc_geom->positions[i] = vertices_positions[i];
-	// 			}
-	// 			gc_geom->kNeighborSize = k;
-	//
-	//
-	// 			// Prepare data
-	// 			gc_geom->requireNeighbors();
-	// 			gc_geom->requireTangentBasis();
-	// 			gc_geom->requireTangentCoordinates();
-	// 			std::vector<geometrycentral::pointcloud::Point> neigh = gc_geom->neighbors->neighbors[center_index];
-	// 			std::vector<geometrycentral::Vector3> neigh_points;
-	// 			neigh_points.reserve(neigh.size());
-	// 			for (const geometrycentral::pointcloud::Point &point: neigh) {
-	// 				neigh_points.emplace_back(gc_geom->positions[point.getIndex()]);
-	// 			}
-	//
-	//
-	// 			std::vector<geometrycentral::Vector2> tangentCoords = gc_geom->tangentCoordinates[center_index];
-	// 			std::vector<geometrycentral::Vector3> origin;
-	// 			origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
-	//
-	//
-	// 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
-	// 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
-	// 			std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
-	// 			std::vector<std::vector<size_t>> tris;
-	// 			tris.reserve(localTri.size());
-	// 			for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
-	// 				std::vector<size_t> temp;
-	// 				temp.reserve(tri.size());
-	// 				for (const geometrycentral::pointcloud::Point &point: tri) {
-	// 					temp.emplace_back(point.getIndex());
-	// 				}
-	// 				tris.emplace_back(temp);
-	// 			}
-	// 			std::vector<geometrycentral::Vector3> new_points;
-	// 			geometrycentral::Vector3 center = gc_geom->positions[center_index];
-	// 			geometrycentral::Vector3 normal = gc_geom->normals[center_index];
-	// 			geometrycentral::Vector3 basisX = gc_geom->tangentBasis[center_index][0];
-	// 			geometrycentral::Vector3 basisY = gc_geom->tangentBasis[center_index][1];
-	// 			for (size_t iN = 0; iN < gc_geom->positions.size(); iN++) {
-	// 				geometrycentral::Vector3 vec = gc_geom->positions[iN] - center;
-	// 				vec = vec.removeComponent(normal);
-	// 				geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
-	// 				new_points.push_back(coord);
-	// 			}
-	// 			std::vector<geometrycentral::Vector3> new_neigh_points;
-	// 			new_neigh_points.reserve(neigh.size());
-	// 			for (const geometrycentral::pointcloud::Point &point: neigh) {
-	// 				new_neigh_points.emplace_back(new_points[point.getIndex()]);
-	// 			}
-	//
-	// 			gc_geom->requireTuftedTriangulation();
-	// 			std::vector<std::vector<size_t>> tufted_tri;
-	// 			for (const std::vector<size_t> &tri: gc_geom->tuftedMesh->getFaceVertexList()) {
-	// 				for (size_t vertex: tri) {
-	// 					if (vertex == center_index) {
-	// 						tufted_tri.push_back(tri);
-	// 					}
-	// 				}
-	// 			}
-	//
-	// 			// Initialize
-	// 			polyscope::init();
-	// 			// Some options
-	// 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-	// 			polyscope::options::groundPlaneHeightFactor = -0.760f;
-	// 			polyscope::options::shadowDarkness = 0.5;
-	// 			// A few camera options
-	// 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-	// 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-	// 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-	// 			polyscope::Group *group = polyscope::createGroup(title);
-	// 			// Register
-	//
-	// 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", vertices_positions);
-	// 			//            psCloud_1->setPointRadius(0.0005);
-	// 			//            psCloud_1->setPointColor(glm::vec3(145.0/255.0, 146.0/255.0, 145.0/255.0));
-	// 			//            psCloud_1->addToGroup(*group);
-	// 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
-	// 			//            std::vector<geometrycentral::Vector3>{vertices_positions[center_index]}); psCloud_2->setPointRadius(0.0010);
-	// 			//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
-	// 			//            psCloud_2->addToGroup(*group);
-	// 			//            polyscope::PointCloud *psCloud_3 = polyscope::registerPointCloud("pc_3", neigh_points);
-	// 			//            psCloud_3->setPointRadius(0.0010);
-	// 			//            psCloud_3->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
-	// 			//            psCloud_3->addToGroup(*group);
-	//
-	// 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud2D("pc_1", tangentCoords);
-	// 			//            psCloud_1->setPointRadius(0.001);
-	// 			//            psCloud_1->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
-	// 			//            psCloud_1->addToGroup(*group);
-	// 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud2D("pc_2", origin);
-	// 			//            psCloud_2->setPointRadius(0.001);
-	// 			//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
-	// 			//            psCloud_2->addToGroup(*group);
-	// 			//
-	// 			//          // In 3D space, show triangles
-	// 			polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
-	// 			psMesh_1->setEdgeWidth(2.0);
-	// 			psMesh_1->setTransparency(0.8);
-	// 			psMesh_1->addToGroup(*group);
-	// 			polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
-	// 			psCloud_1->setPointRadius(0.00015);
-	// 			psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
-	// 			psCloud_1->addToGroup(*group);
-	// 			polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
-	// 			psCloud_2->setPointRadius(0.00025);
-	// 			psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
-	// 			psCloud_2->addToGroup(*group);
-	// 			//
-	// 			//            // In 3D space, show one-ring neighborhood and one-ring triangles
-	// 			//            polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", gc_geom->positions, tufted_tri);
-	// 			//            psMesh_1->setEdgeWidth(2.0);
-	// 			//            psMesh_1->setTransparency(0.85);
-	// 			//            psMesh_1->addToGroup(*group);
-	// 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", neigh_points);
-	// 			//            psCloud_1->setPointRadius(0.0005);
-	// 			//            psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
-	// 			//            psCloud_1->addToGroup(*group);
-	// 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
-	// 			//                                                                             std::vector<geometrycentral::Vector3>
-	// 			//                                                                                     {vertices_positions[center_index]});
-	// 			//            psCloud_2->setPointRadius(0.0005);
-	// 			//            psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
-	// 			//            psCloud_2->addToGroup(*group);
-	//
-	// 			// Show the GUI
-	// 			std::string myString = polyscope::view::getViewAsJson();
-	// 			polyscope::show();
-	// 		}
-	//
-	//
-	// 		void DrawTwoTangentPoints(const std::string &title,
-	// 								  const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
-	// 								  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr,
-	// 								  const int k,
-	// 								  const int center_index) {
-	// 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_origianl_cloudPtr =
-	// 					std::make_shared<geometrycentral::pointcloud::PointCloud>(origianl_cloudPtr->rows());
-	// 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_origianl_geom =
-	// 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_origianl_cloudPtr);
-	// 			std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2Vector<geometrycentral::Vector3>(*origianl_cloudPtr);
-	// 			for (int i = 0; i < origianl_cloudPtr->rows(); ++i) {
-	// 				gc_origianl_geom->positions[i] = vertices_positions[i];
-	// 			}
-	// 			gc_origianl_geom->kNeighborSize = k;
-	//
-	// 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_contracted_cloudPtr =
-	// 					std::make_shared<geometrycentral::pointcloud::PointCloud>(contracted_cloudPtr->rows());
-	// 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_contracted_geom =
-	// 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_contracted_cloudPtr);
-	// 			std::vector<geometrycentral::Vector3> contracted_vertices_positions =
-	// 					tool::utility::Matrix2Vector<geometrycentral::Vector3>(*contracted_cloudPtr);
-	// 			for (int i = 0; i < contracted_cloudPtr->rows(); ++i) {
-	// 				gc_contracted_geom->positions[i] = contracted_vertices_positions[i];
-	// 			}
-	// 			gc_contracted_geom->kNeighborSize = k;
-	//
-	//
-	// 			// Prepare data
-	// 			gc_origianl_geom->requireNeighbors();
-	// 			gc_origianl_geom->requireTangentBasis();
-	// 			gc_origianl_geom->requireTangentCoordinates();
-	// 			std::vector<geometrycentral::pointcloud::Point> neigh = gc_origianl_geom->neighbors->neighbors[center_index];
-	//
-	//
-	// 			// Prepare data
-	// 			gc_contracted_geom->requireNeighbors();
-	// 			gc_contracted_geom->requireTangentBasis();
-	// 			gc_contracted_geom->requireTangentCoordinates();
-	// 			std::vector<geometrycentral::Vector2> tangentCoords = gc_contracted_geom->tangentCoordinates[center_index];
-	// 			std::vector<geometrycentral::Vector3> origin;
-	// 			origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
-	//
-	//
-	// 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
-	// 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_origianl_cloudPtr, *gc_origianl_geom, true);
-	// 			std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
-	// 			std::vector<std::vector<size_t>> tris;
-	// 			tris.reserve(localTri.size());
-	// 			for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
-	// 				std::vector<size_t> temp;
-	// 				temp.reserve(tri.size());
-	// 				for (const geometrycentral::pointcloud::Point &point: tri) {
-	// 					temp.emplace_back(point.getIndex());
-	// 				}
-	// 				tris.emplace_back(temp);
-	// 			}
-	// 			std::vector<geometrycentral::Vector3> new_points;
-	// 			geometrycentral::Vector3 center = gc_contracted_geom->positions[center_index];
-	// 			geometrycentral::Vector3 normal = gc_contracted_geom->normals[center_index];
-	// 			geometrycentral::Vector3 basisX = gc_contracted_geom->tangentBasis[center_index][0];
-	// 			geometrycentral::Vector3 basisY = gc_contracted_geom->tangentBasis[center_index][1];
-	// 			for (size_t iN = 0; iN < gc_contracted_geom->positions.size(); iN++) {
-	// 				geometrycentral::Vector3 vec = gc_contracted_geom->positions[iN] - center;
-	// 				vec = vec.removeComponent(normal);
-	// 				geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
-	// 				new_points.push_back(coord);
-	// 			}
-	// 			std::vector<geometrycentral::Vector3> new_neigh_points;
-	// 			new_neigh_points.reserve(neigh.size());
-	// 			for (const geometrycentral::pointcloud::Point &point: neigh) {
-	// 				new_neigh_points.emplace_back(new_points[point.getIndex()]);
-	// 			}
-	//
-	// 			// Initialize
-	// 			polyscope::init();
-	// 			// Some options
-	// 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-	// 			polyscope::options::groundPlaneHeightFactor = -0.760f;
-	// 			polyscope::options::shadowDarkness = 0.5;
-	// 			// A few camera options
-	// 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-	// 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-	// 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-	// 			polyscope::Group *group = polyscope::createGroup(title);
-	//
-	// 			// Register
-	// 			polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
-	// 			psMesh_1->setEdgeWidth(2.0);
-	// 			psMesh_1->setTransparency(0.8);
-	// 			psMesh_1->addToGroup(*group);
-	// 			polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
-	// 			psCloud_1->setPointRadius(0.00015);
-	// 			psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
-	// 			psCloud_1->addToGroup(*group);
-	// 			polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
-	// 			psCloud_2->setPointRadius(0.00025);
-	// 			psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
-	// 			psCloud_2->addToGroup(*group);
-	//
-	// 			// Show the GUI
-	// 			std::string myString = polyscope::view::getViewAsJson();
-	// 			polyscope::show();
-	// 		}
-	// 	}  // namespace visualize
-	// }  // namespace debug
+	namespace debug {
+		double AverageNoneZerosPerRow(const Eigen::SparseMatrix<double> &mat) {
+			int nonZeroCount = 0;
+			// Iterate over each row
+			for (int k = 0; k < mat.outerSize(); ++k) {
+				// Iterate over the non-zero elements in this row
+				for (Eigen::SparseMatrix<double>::InnerIterator it(mat, k); it; ++it) {
+					++nonZeroCount;
+				}
+			}
+			// Handle the case when there are no non-zero elements to avoid division by zero
+			return nonZeroCount == 0 ? 0.0 : static_cast<double>(nonZeroCount) / static_cast<double>(mat.rows());
+		}
+
+
+		void SaveSphereToPLY(const Eigen::Vector3d &center, double radius, const std::filesystem::path &file_path) {
+			std::vector<Eigen::Vector3d> vertices;
+			std::vector<std::vector<int>> faces;
+			int sectorCount = 36;
+			int stackCount = 18;
+			double x, y, z, xy;	 // vertex position
+			double sectorStep = 2 * M_PI / sectorCount;
+			double stackStep = M_PI / stackCount;
+			double sectorAngle, stackAngle;
+			// Generate vertices
+			for (int i = 0; i <= stackCount; ++i) {
+				stackAngle = M_PI / 2 - i * stackStep;	// starting from pi/2 to -pi/2
+				xy = radius * cos(stackAngle);			// r * cos(u)
+				z = radius * sin(stackAngle);			// r * sin(u)
+				for (int j = 0; j <= sectorCount; ++j) {
+					sectorAngle = j * sectorStep;		// starting from 0 to 2pi
+					x = xy * cos(sectorAngle);			// r * cos(u) * cos(v)
+					y = xy * sin(sectorAngle);			// r * cos(u) * sin(v)
+					vertices.emplace_back(center + Eigen::Vector3d(x, y, z));
+				}
+			}
+			// Generate faces
+			int k1, k2;
+			for (int i = 0; i < stackCount; ++i) {
+				k1 = i * (sectorCount + 1);
+				k2 = k1 + sectorCount + 1;
+				for (int j = 0; j < sectorCount; ++j, ++k1, ++k2) {
+					if (i != 0) {
+						faces.push_back({ k1, k2, k1 + 1 });
+					}
+					if (i != (stackCount - 1)) {
+						faces.push_back({ k1 + 1, k2, k2 + 1 });
+					}
+				}
+			}
+			// Write to ASCII file
+			std::ofstream plyFile(file_path);
+			if (!plyFile.is_open()) {
+				Logger::Instance().Log(std::format("Failed to open file ({}) for writing", file_path.string()), LogLevel::ERROR);
+			}
+			plyFile << std::fixed << std::setprecision(16);
+			// ASCII header
+			plyFile << "ply\n";
+			plyFile << "format ascii 1.0\n";
+			plyFile << "comment object: Sphere\n";
+			plyFile << "element vertex " << vertices.size() << "\n";
+			plyFile << "property double x\n";
+			plyFile << "property double y\n";
+			plyFile << "property double z\n";
+			plyFile << "element face " << faces.size() << "\n";
+			plyFile << "property list uchar int vertex_index\n";
+			plyFile << "end_header\n";
+			// Vertices
+			for (const Eigen::Vector3d &vertex: vertices) {
+				plyFile << vertex.x() << " " << vertex.y() << " " << vertex.z() << "\n";
+			}
+			// Faces
+			for (const std::vector<int> &face: faces) {
+				plyFile << face.size() << " ";
+				for (size_t i = 0; i < face.size(); ++i) {
+					plyFile << face[i];
+					if (i < face.size() - 1)
+						plyFile << " ";
+				}
+				plyFile << "\n";
+			}
+			plyFile.close();
+		}
+
+
+		//	 	namespace visualize {
+		//	 		void DrawPointClouds(const std::string &group_title,
+		//	 							 const std::vector<std::pair<std::string, std::shared_ptr<Eigen::MatrixXd>>> &cloudsPairs) {
+		//	 			if (polyscope::isInitialized()) {
+		//	 				try {
+		//	 					polyscope::getGroup(group_title);
+		//	 				} catch (std::runtime_error &e) {
+		//	 					polyscope::createGroup(group_title);
+		//	 				}
+		//	 				polyscope::Group *group = polyscope::getGroup(group_title);
+		//	 				for (int i = 0; i < cloudsPairs.size(); ++i) {
+		//	 					const std::string &cloudName = cloudsPairs[i].first;
+		//	 					const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
+		//	 					std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(*cloudMatrix);
+		//	 					polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
+		//	 					if (cloudsPairs.size() > 1 && i == 0) {
+		//	 						psCloud->setPointRadius(0.001);
+		//	 					} else {
+		//	 						psCloud->setPointRadius(0.0015);
+		//	 					}
+		//	 					psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
+		//	 					// Add point cloud to the group
+		//	 					psCloud->addToGroup(*group);
+		//	 				}
+		//	 				// Set some options
+		//	 				group->setEnabled(true);
+		//	 				group->setHideDescendantsFromStructureLists(true);
+		//	 				group->setShowChildDetails(true);
+		//	 			} else {
+		//	 				// Initialize
+		//	 				polyscope::init();
+		//
+		//	 				// Some options
+		//	 				polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+		//	 				polyscope::options::groundPlaneHeightFactor = 0.1;
+		//	 				polyscope::options::shadowDarkness = 0.3;
+		//	 				// A few camera options
+		//	 				polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+		//	 				polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+		//	 				polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+		//	 				// Create a group
+		//	 				polyscope::Group *group = polyscope::createGroup(group_title);
+		//	 				// Register the point clouds
+		//	 				for (int i = 0; i < cloudsPairs.size(); ++i) {
+		//	 					const std::string &cloudName = cloudsPairs[i].first;
+		//	 					const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
+		//	 					std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(*cloudMatrix);
+		//	 					polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
+		//	 					if (cloudsPairs.size() > 1 && i == 0) {
+		//	 						psCloud->setPointRadius(0.001);
+		//	 					} else {
+		//	 						psCloud->setPointRadius(0.0015);
+		//	 					}
+		//	 					psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
+		//	 					// Add point cloud to the group
+		//	 					psCloud->addToGroup(*group);
+		//	 				}
+		//	 				// Set some options
+		//	 				group->setEnabled(true);
+		//	 				group->setHideDescendantsFromStructureLists(true);
+		//	 				group->setShowChildDetails(true);
+		//	 			}
+		//	 			// Show the GUI
+		//	 			polyscope::show();
+		//	 		}
+		//
+		//
+		//	 		void DrawUnionLocalTriangles(const std::string &title,
+		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
+		//	 			// Initialize
+		//	 			polyscope::init();
+		//	 			// Some options
+		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+		//	 			polyscope::options::groundPlaneHeightFactor = 0.1;
+		//	 			polyscope::options::shadowDarkness = 0.3;
+		//	 			// A few camera options
+		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+		//	 			// Generate the local triangles
+		//	 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
+		//	 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
+		//	 			// Make a union mesh
+		//	 			std::vector<std::vector<size_t>> allTris = handleToFlatInds(*gc_cloudPtr, localTriPoint);
+		//	 			std::vector<geometrycentral::Vector3> posRaw(gc_cloudPtr->nPoints());
+		//	 			for (size_t iP = 0; iP < posRaw.size(); iP++) {
+		//	 				posRaw[iP] = gc_geom->positions[iP];
+		//	 			}
+		//	 			// Register the mesh
+		//	 			polyscope::registerSurfaceMesh(title, posRaw, allTris);
+		//	 			// Show the GUI
+		//	 			polyscope::show();
+		//	 		}
+		//
+		//
+		//	 		void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom)
+		//{
+		//	 			// Initialize
+		//	 			polyscope::init();
+		//	 			// Some options
+		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+		//	 			polyscope::options::groundPlaneHeightFactor = 0.1;
+		//	 			polyscope::options::shadowDarkness = 0.3;
+		//	 			// A few camera options
+		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+		//	 			// Generate the Tufted mesh
+		//	 			if (!gc_geom->tuftedMesh) {
+		//	 				gc_geom->requireTuftedTriangulation();
+		//	 			}
+		//	 			// Register the mesh
+		//	 			polyscope::registerSurfaceMesh(title, gc_geom->positions, gc_geom->tuftedMesh->getFaceVertexList());
+		//	 			// Show the GUI
+		//	 			polyscope::show();
+		//	 		}
+		//
+		//
+		//	 		void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, const int k, const int
+		// center_index) { 	 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_cloudPtr =
+		//	 					std::make_shared<geometrycentral::pointcloud::PointCloud>(cloudPtr->rows());
+		//	 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_geom =
+		//	 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_cloudPtr);
+		//	 			std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2Vector<geometrycentral::Vector3>(*cloudPtr);
+		//	 			for (int i = 0; i < cloudPtr->rows(); ++i) {
+		//	 				gc_geom->positions[i] = vertices_positions[i];
+		//	 			}
+		//	 			gc_geom->kNeighborSize = k;
+		//
+		//
+		//	 			// Prepare data
+		//	 			gc_geom->requireNeighbors();
+		//	 			gc_geom->requireTangentBasis();
+		//	 			gc_geom->requireTangentCoordinates();
+		//	 			std::vector<geometrycentral::pointcloud::Point> neigh = gc_geom->neighbors->neighbors[center_index];
+		//	 			std::vector<geometrycentral::Vector3> neigh_points;
+		//	 			neigh_points.reserve(neigh.size());
+		//	 			for (const geometrycentral::pointcloud::Point &point: neigh) {
+		//	 				neigh_points.emplace_back(gc_geom->positions[point.getIndex()]);
+		//	 			}
+		//
+		//
+		//	 			std::vector<geometrycentral::Vector2> tangentCoords = gc_geom->tangentCoordinates[center_index];
+		//	 			std::vector<geometrycentral::Vector3> origin;
+		//	 			origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
+		//
+		//
+		//	 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
+		//	 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
+		//	 			std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
+		//	 			std::vector<std::vector<size_t>> tris;
+		//	 			tris.reserve(localTri.size());
+		//	 			for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
+		//	 				std::vector<size_t> temp;
+		//	 				temp.reserve(tri.size());
+		//	 				for (const geometrycentral::pointcloud::Point &point: tri) {
+		//	 					temp.emplace_back(point.getIndex());
+		//	 				}
+		//	 				tris.emplace_back(temp);
+		//	 			}
+		//	 			std::vector<geometrycentral::Vector3> new_points;
+		//	 			geometrycentral::Vector3 center = gc_geom->positions[center_index];
+		//	 			geometrycentral::Vector3 normal = gc_geom->normals[center_index];
+		//	 			geometrycentral::Vector3 basisX = gc_geom->tangentBasis[center_index][0];
+		//	 			geometrycentral::Vector3 basisY = gc_geom->tangentBasis[center_index][1];
+		//	 			for (size_t iN = 0; iN < gc_geom->positions.size(); iN++) {
+		//	 				geometrycentral::Vector3 vec = gc_geom->positions[iN] - center;
+		//	 				vec = vec.removeComponent(normal);
+		//	 				geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
+		//	 				new_points.push_back(coord);
+		//	 			}
+		//	 			std::vector<geometrycentral::Vector3> new_neigh_points;
+		//	 			new_neigh_points.reserve(neigh.size());
+		//	 			for (const geometrycentral::pointcloud::Point &point: neigh) {
+		//	 				new_neigh_points.emplace_back(new_points[point.getIndex()]);
+		//	 			}
+		//
+		//	 			gc_geom->requireTuftedTriangulation();
+		//	 			std::vector<std::vector<size_t>> tufted_tri;
+		//	 			for (const std::vector<size_t> &tri: gc_geom->tuftedMesh->getFaceVertexList()) {
+		//	 				for (size_t vertex: tri) {
+		//	 					if (vertex == center_index) {
+		//	 						tufted_tri.push_back(tri);
+		//	 					}
+		//	 				}
+		//	 			}
+		//
+		//	 			// Initialize
+		//	 			polyscope::init();
+		//	 			// Some options
+		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+		//	 			polyscope::options::groundPlaneHeightFactor = -0.760f;
+		//	 			polyscope::options::shadowDarkness = 0.5;
+		//	 			// A few camera options
+		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+		//	 			polyscope::Group *group = polyscope::createGroup(title);
+		//	 			// Register
+		//
+		//	 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", vertices_positions);
+		//	 			//            psCloud_1->setPointRadius(0.0005);
+		//	 			//            psCloud_1->setPointColor(glm::vec3(145.0/255.0, 146.0/255.0, 145.0/255.0));
+		//	 			//            psCloud_1->addToGroup(*group);
+		//	 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
+		//	 			//            std::vector<geometrycentral::Vector3>{vertices_positions[center_index]}); psCloud_2->setPointRadius(0.0010);
+		//	 			//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+		//	 			//            psCloud_2->addToGroup(*group);
+		//	 			//            polyscope::PointCloud *psCloud_3 = polyscope::registerPointCloud("pc_3", neigh_points);
+		//	 			//            psCloud_3->setPointRadius(0.0010);
+		//	 			//            psCloud_3->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+		//	 			//            psCloud_3->addToGroup(*group);
+		//
+		//	 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud2D("pc_1", tangentCoords);
+		//	 			//            psCloud_1->setPointRadius(0.001);
+		//	 			//            psCloud_1->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+		//	 			//            psCloud_1->addToGroup(*group);
+		//	 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud2D("pc_2", origin);
+		//	 			//            psCloud_2->setPointRadius(0.001);
+		//	 			//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+		//	 			//            psCloud_2->addToGroup(*group);
+		//	 			//
+		//	 			//          // In 3D space, show triangles
+		//	 			polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
+		//	 			psMesh_1->setEdgeWidth(2.0);
+		//	 			psMesh_1->setTransparency(0.8);
+		//	 			psMesh_1->addToGroup(*group);
+		//	 			polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
+		//	 			psCloud_1->setPointRadius(0.00015);
+		//	 			psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
+		//	 			psCloud_1->addToGroup(*group);
+		//	 			polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
+		//	 			psCloud_2->setPointRadius(0.00025);
+		//	 			psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
+		//	 			psCloud_2->addToGroup(*group);
+		//	 			//
+		//	 			//            // In 3D space, show one-ring neighborhood and one-ring triangles
+		//	 			//            polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", gc_geom->positions, tufted_tri);
+		//	 			//            psMesh_1->setEdgeWidth(2.0);
+		//	 			//            psMesh_1->setTransparency(0.85);
+		//	 			//            psMesh_1->addToGroup(*group);
+		//	 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", neigh_points);
+		//	 			//            psCloud_1->setPointRadius(0.0005);
+		//	 			//            psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
+		//	 			//            psCloud_1->addToGroup(*group);
+		//	 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
+		//	 			//                                                                             std::vector<geometrycentral::Vector3>
+		//	 			//                                                                                     {vertices_positions[center_index]});
+		//	 			//            psCloud_2->setPointRadius(0.0005);
+		//	 			//            psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
+		//	 			//            psCloud_2->addToGroup(*group);
+		//
+		//	 			// Show the GUI
+		//	 			std::string myString = polyscope::view::getViewAsJson();
+		//	 			polyscope::show();
+		//	 		}
+		//
+		//
+		//	 		void DrawTwoTangentPoints(const std::string &title,
+		//	 								  const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
+		//	 								  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr,
+		//	 								  const int k,
+		//	 								  const int center_index) {
+		//	 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_origianl_cloudPtr =
+		//	 					std::make_shared<geometrycentral::pointcloud::PointCloud>(origianl_cloudPtr->rows());
+		//	 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_origianl_geom =
+		//	 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_origianl_cloudPtr);
+		//	 			std::vector<geometrycentral::Vector3> vertices_positions =
+		// tool::utility::Matrix2Vector<geometrycentral::Vector3>(*origianl_cloudPtr); 	 			for (int i = 0; i < origianl_cloudPtr->rows();
+		// ++i) { 	 				gc_origianl_geom->positions[i] = vertices_positions[i];
+		//	 			}
+		//	 			gc_origianl_geom->kNeighborSize = k;
+		//
+		//	 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_contracted_cloudPtr =
+		//	 					std::make_shared<geometrycentral::pointcloud::PointCloud>(contracted_cloudPtr->rows());
+		//	 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_contracted_geom =
+		//	 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_contracted_cloudPtr);
+		//	 			std::vector<geometrycentral::Vector3> contracted_vertices_positions =
+		//	 					tool::utility::Matrix2Vector<geometrycentral::Vector3>(*contracted_cloudPtr);
+		//	 			for (int i = 0; i < contracted_cloudPtr->rows(); ++i) {
+		//	 				gc_contracted_geom->positions[i] = contracted_vertices_positions[i];
+		//	 			}
+		//	 			gc_contracted_geom->kNeighborSize = k;
+		//
+		//
+		//	 			// Prepare data
+		//	 			gc_origianl_geom->requireNeighbors();
+		//	 			gc_origianl_geom->requireTangentBasis();
+		//	 			gc_origianl_geom->requireTangentCoordinates();
+		//	 			std::vector<geometrycentral::pointcloud::Point> neigh = gc_origianl_geom->neighbors->neighbors[center_index];
+		//
+		//
+		//	 			// Prepare data
+		//	 			gc_contracted_geom->requireNeighbors();
+		//	 			gc_contracted_geom->requireTangentBasis();
+		//	 			gc_contracted_geom->requireTangentCoordinates();
+		//	 			std::vector<geometrycentral::Vector2> tangentCoords = gc_contracted_geom->tangentCoordinates[center_index];
+		//	 			std::vector<geometrycentral::Vector3> origin;
+		//	 			origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
+		//
+		//
+		//	 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
+		//	 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_origianl_cloudPtr, *gc_origianl_geom, true);
+		//	 			std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
+		//	 			std::vector<std::vector<size_t>> tris;
+		//	 			tris.reserve(localTri.size());
+		//	 			for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
+		//	 				std::vector<size_t> temp;
+		//	 				temp.reserve(tri.size());
+		//	 				for (const geometrycentral::pointcloud::Point &point: tri) {
+		//	 					temp.emplace_back(point.getIndex());
+		//	 				}
+		//	 				tris.emplace_back(temp);
+		//	 			}
+		//	 			std::vector<geometrycentral::Vector3> new_points;
+		//	 			geometrycentral::Vector3 center = gc_contracted_geom->positions[center_index];
+		//	 			geometrycentral::Vector3 normal = gc_contracted_geom->normals[center_index];
+		//	 			geometrycentral::Vector3 basisX = gc_contracted_geom->tangentBasis[center_index][0];
+		//	 			geometrycentral::Vector3 basisY = gc_contracted_geom->tangentBasis[center_index][1];
+		//	 			for (size_t iN = 0; iN < gc_contracted_geom->positions.size(); iN++) {
+		//	 				geometrycentral::Vector3 vec = gc_contracted_geom->positions[iN] - center;
+		//	 				vec = vec.removeComponent(normal);
+		//	 				geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
+		//	 				new_points.push_back(coord);
+		//	 			}
+		//	 			std::vector<geometrycentral::Vector3> new_neigh_points;
+		//	 			new_neigh_points.reserve(neigh.size());
+		//	 			for (const geometrycentral::pointcloud::Point &point: neigh) {
+		//	 				new_neigh_points.emplace_back(new_points[point.getIndex()]);
+		//	 			}
+		//
+		//	 			// Initialize
+		//	 			polyscope::init();
+		//	 			// Some options
+		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+		//	 			polyscope::options::groundPlaneHeightFactor = -0.760f;
+		//	 			polyscope::options::shadowDarkness = 0.5;
+		//	 			// A few camera options
+		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+		//	 			polyscope::Group *group = polyscope::createGroup(title);
+		//
+		//	 			// Register
+		//	 			polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
+		//	 			psMesh_1->setEdgeWidth(2.0);
+		//	 			psMesh_1->setTransparency(0.8);
+		//	 			psMesh_1->addToGroup(*group);
+		//	 			polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
+		//	 			psCloud_1->setPointRadius(0.00015);
+		//	 			psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
+		//	 			psCloud_1->addToGroup(*group);
+		//	 			polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
+		//	 			psCloud_2->setPointRadius(0.00025);
+		//	 			psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
+		//	 			psCloud_2->addToGroup(*group);
+		//
+		//	 			// Show the GUI
+		//	 			std::string myString = polyscope::view::getViewAsJson();
+		//	 			polyscope::show();
+		//	 		}
+		//	 	}  // namespace visualize
+	}  // namespace debug
 }  // namespace tool

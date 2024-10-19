@@ -27,35 +27,38 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 	Eigen::MatrixXd laplacian_skeleton = skeleton.GetLaplacianSkeleton();
 
 
-	// Down sample the skeleton points using farthest point down sampling
-	size_t down_sample_number = config["Skeleton_Building"]["Down_Sample_Number"].get<size_t>();
+	// Down sample the skeleton using farthest point down sampling
+	const auto down_sample_number =
+			static_cast<size_t>(std::round(config["Skeleton_Building"]["Down_Sample_Ratio"].get<double>() * laplacian_skeleton.rows()));
 	Eigen::MatrixXd skeleton_points_cloud;
 	std::vector<size_t> _;
 	std::tie(skeleton_points_cloud, _) = tool::utility::FarthestPointDownSample(laplacian_skeleton, down_sample_number);
-	tool::io::SavePointCloudToPLY(skeleton_points_cloud, output_folder_path / "_FPSDownsampled.ply", isPlyFormatBinary);
+	tool::io::SavePointCloudToPLY(skeleton_points_cloud, output_folder_path / "2_FPS-Downsampled.ply");
 
 
 	// Utilize modified LOP operator to calibrate the skeleton points
 	Eigen::MatrixXd final_skeleton_points_cloud = LOPCalibrate(input_cloud, skeleton_points_cloud, config);
-	tool::io::SavePointCloudToPLY(final_skeleton_points_cloud, output_folder_path / (file_name + "_LOPCalibrated.ply"), isPlyFormatBinary);
+	tool::io::SavePointCloudToPLY(final_skeleton_points_cloud, output_folder_path / "3_LOP-Calibrated.ply");
 
 
-	// Compute MST
+	// Compute and prune MST
 	Graph graph(final_skeleton_points_cloud, config);
+	Boost_Graph skeleton_initial_graph = graph.GetInitialGraph();
+	tool::io::SaveSkeletonGraphToPLY(skeleton_initial_graph, output_folder_path / "4_Initial-Graph.ply");
 	Boost_Graph skeleton_mst_graph = graph.GetMST();
-	tool::io::SaveSkeletonGraphToPLY(skeleton_mst_graph, output_folder_path / "_MST-Raw.ply", isPlyFormatBinary);
-	// Prune the MST
+	tool::io::SaveSkeletonGraphToPLY(skeleton_mst_graph, output_folder_path / "5_MST-Raw.ply");
 	Boost_Graph skeleton_mst_pruned_graph = graph.GetPrunedMST();
-	tool::io::SaveSkeletonGraphToPLY(skeleton_mst_pruned_graph, output_folder_path / (file_name + "_MST-Pruned.ply"), isPlyFormatBinary);
+	tool::io::SaveSkeletonGraphToPLY(skeleton_mst_pruned_graph, output_folder_path / "6_MST-Pruned.ply");
 
 
 	// Segment the skeleton
 	std::vector<int> skeleton_semantic_labels;
 	std::vector<int> skeleton_instance_labels;
 	std::tie(skeleton_semantic_labels, skeleton_instance_labels) = graph.SegmentSkeleton();
+	tool::io::SaveSkeletonGraphToPLY(skeleton_mst_pruned_graph, output_folder_path / "7_MST-Segmented.ply", skeleton_semantic_labels,
+									 skeleton_instance_labels);
 
-	tool::io::SaveSkeletonGraphToPLY(skeleton_mst_pruned_graph, output_folder_path / (file_name + "_MST-Segmented.ply"), skeleton_semantic_labels,
-									 isPlyFormatBinary);
+
 	// Detect Stem-Leaf points based on the skeleton segmentation
 	std::vector<int> estimated_labels =
 			tool::utility::NearestProjectFromBoostVertices(skeleton_mst_pruned_graph, input_cloud, skeleton_semantic_labels, "vertex");
@@ -64,7 +67,7 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 	// Write the final PLY file
 	std::vector<int> predicted_semantic_labels(input_cloud.rows());
 	std::vector<int> predicted_instance_labels(input_cloud.rows());
-	std::pair<std::string, std::string> label_names = { "pred_semantic", "pred_instance" };
+	std::pair<std::string, std::string> label_names = { "pred-semantic", "pred-instance" };
 	for (int i = 0; i < estimated_labels.size(); ++i) {
 		if (estimated_labels.at(i) == 0) {			  // Shoot
 			predicted_semantic_labels.at(i) = 0;	  // Semantic label for shoot
@@ -75,24 +78,24 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 		}
 	}
 	tool::io::SavePointCloudToPLY(input_cloud, output_folder_path / (file_name + "_Result.ply"), predicted_semantic_labels, predicted_instance_labels,
-								  label_names, isPlyFormatBinary);
+								  label_names);
 
 
-	tool::io::SaveJSONFile(config, output_folder_path / (file_name + "_Config.json"));
+	tool::io::SaveJSONFile(config, output_folder_path / "configure.json");
 
 
 	Logger::Instance().AddLine(LogLine::STAR);
-	Logger::Instance().Log(std::format("{} Finished Processing!", input_file_path.string()));
+	Logger::Instance().Log(std::format("{} Finished Processing!", file_name));
 	Logger::Instance().AddLine(LogLine::SHARP);
 }
 
 
 int main() {
 	// Load the configuration file
-	std::filesystem::path config_file_path = "../configue.json";
+	std::filesystem::path config_file_path = "../configure.json";
 	std::ifstream config_file(config_file_path);
 	if (!config_file.is_open()) {
-		throw std::runtime_error(std::format("Failed to open the configuration file ({})", config_file_path.string()));
+		throw std::runtime_error(std::format("Failed to open the configuration file: {}", config_file_path.string()));
 	}
 	nlohmann::json config;
 	try {
@@ -100,9 +103,7 @@ int main() {
 	} catch (const nlohmann::json::parse_error &e) {
 		throw std::runtime_error(std::format("Failed to parse the configuration file: {}", e.what()));
 	}
-	if (!configvalidator::ValidateConfig(config)) {
-		throw std::runtime_error("Invalid configuration file");
-	}
+	configvalidator::ValidateConfig(config);
 
 
 	// Initialize the Logger::Instance()

@@ -77,7 +77,7 @@ public:
 		}
 		log_file_.open(log_file_path, std::ios::app);
 		if (!log_file_) {
-			throw std::runtime_error("Cannot open log file: " + log_file_path.string());
+			throw std::runtime_error(std::format("Cannot open log file ({})", log_file_path.string()));
 		}
 	}
 

@@ -57,13 +57,11 @@ namespace configvalidator {
 	bool CheckSection(const nlohmann::json &config, const std::string &section_name, ValidatorFunc validator) {
 		if (config.contains(section_name) && config[section_name].is_object()) {
 			if (auto error = validator(config[section_name])) {
-				std::cerr << error.value() << std::endl;
-				return false;
+				throw std::runtime_error(error.value());
 			}
 			return true;
 		} else {
-			std::cerr << std::format("Missing or invalid '{}' section.", section_name) << std::endl;
-			return false;
+			throw std::runtime_error(std::format("Missing or invalid '{}' section.", section_name));
 		}
 	}
 
@@ -278,6 +276,18 @@ namespace configvalidator {
 
 	// Validate "Constraint_Laplacian_Operator" section
 	std::optional<std::string> ValidateConstraintLaplacianOperator(const nlohmann::json &constraint_laplacian_operator) {
+		if (!constraint_laplacian_operator.contains("KNN_Search") || !constraint_laplacian_operator.contains("Radius_Search")) {
+			return "Missing 'KNN_Search' or 'Radius_Search' in 'Constraint_Laplacian_Operator'.";
+		}
+
+		if (!constraint_laplacian_operator["KNN_Search"].is_boolean() || !constraint_laplacian_operator["Radius_Search"].is_boolean()) {
+			return "Invalid 'KNN_Search' or 'Radius_Search' in 'Constraint_Laplacian_Operator'.";
+		}
+
+		if (constraint_laplacian_operator["KNN_Search"].get<bool>() == constraint_laplacian_operator["Radius_Search"].get<bool>()) {
+			return "Only one of 'KNN_Search' or 'Radius_Search' should be true in 'Constraint_Laplacian_Operator'.";
+		}
+
 		if (!constraint_laplacian_operator.contains("Initial_k") || !constraint_laplacian_operator["Initial_k"].is_number_integer()) {
 			return "Missing or invalid 'Initial_k' in 'Constraint_Laplacian_Operator'.";
 		}
@@ -288,6 +298,18 @@ namespace configvalidator {
 
 		if (!constraint_laplacian_operator.contains("Max_k") || !constraint_laplacian_operator["Max_k"].is_number_integer()) {
 			return "Missing or invalid 'Max_k' in 'Constraint_Laplacian_Operator'.";
+		}
+
+		if (!constraint_laplacian_operator.contains("Initial_Radius_Ratio") || !constraint_laplacian_operator["Initial_Radius_Ratio"].is_number()) {
+			return "Missing or invalid 'Initial_Radius_Ratio' in 'Constraint_Laplacian_Operator'.";
+		}
+
+		if (!constraint_laplacian_operator.contains("Delta_Radius_Ratio") || !constraint_laplacian_operator["Delta_Radius_Ratio"].is_number()) {
+			return "Missing or invalid 'Delta_Radius_Ratio' in 'Constraint_Laplacian_Operator'.";
+		}
+
+		if (!constraint_laplacian_operator.contains("Max_Radius_Ratio") || !constraint_laplacian_operator["Max_Radius_Ratio"].is_number()) {
+			return "Missing or invalid 'Max_Radius_Ratio' in 'Constraint_Laplacian_Operator'.";
 		}
 
 		return std::nullopt;
@@ -332,8 +354,8 @@ namespace configvalidator {
 
 	// Validate "Skeleton_Building" section
 	std::optional<std::string> ValidateSkeletonBuilding(const nlohmann::json &skeleton_building) {
-		if (!skeleton_building.contains("Down_Sample_Number") || !skeleton_building["Down_Sample_Number"].is_number_integer()) {
-			return "Missing or invalid 'Down_Sample_Number' in 'Skeleton_Building'.";
+		if (!skeleton_building.contains("Down_Sample_Ratio") || !skeleton_building["Down_Sample_Ratio"].is_number()) {
+			return "Missing or invalid 'Down_Sample_Ratio' in 'Skeleton_Building'.";
 		}
 
 		if (!skeleton_building.contains("LOP_Sphere_Radius_Ratio") || !skeleton_building["LOP_Sphere_Radius_Ratio"].is_number()) {
@@ -355,6 +377,7 @@ namespace configvalidator {
 			if (!std::filesystem::exists(output_folder_path)) {
 				// Create the output folder
 				std::filesystem::create_directories(output_folder_path);
+				std::filesystem::create_directories(output_folder_path / ".iterations");
 			} else {
 				// Check if the output folder contains subdirectories
 				bool has_contents = !std::filesystem::is_empty(output_folder_path);
@@ -371,6 +394,7 @@ namespace configvalidator {
 							// Delete all contents in the output folder
 							std::filesystem::remove_all(output_folder_path);
 							std::filesystem::create_directories(output_folder_path);
+							std::filesystem::create_directories(output_folder_path / ".iterations");
 							break;
 						} else {
 							std::cout << "Invalid input. Please enter 'y' or 'n'." << std::endl;
