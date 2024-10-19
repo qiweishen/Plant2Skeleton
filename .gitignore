@@ -1,8 +1,7 @@
 .idea/
 cmake-build-debug/
 cmake-build-release/
-/data/Dataset/
-/data/Output/
+/data/
 
 # For MacOS
 *.DS_Store
