@@ -14,6 +14,9 @@
 #include <geometrycentral/utilities/vector3.h>
 #include <memory>
 #include <plywoot.hpp>
+#include <polyscope/point_cloud.h>
+#include <polyscope/polyscope.h>
+#include <polyscope/surface_mesh.h>
 #include <utility/timer.h>
 
 #include "graph.h"
@@ -37,8 +40,9 @@ namespace tool {
 			 * @brief Uniformly downsample the point cloud (easy3d::PointCloud) to the given point number.
 			 * @param cloud: The point cloud object (easy3d::PointCloud).
 			 * @param num_samples: The expected point number, which must be less than or equal to the original point number.
+			 * @param with_log: Whether to print the log information.
 			 */
-			void UniformDownSample(easy3d::PointCloud &cloud, unsigned int num_samples);
+			void UniformDownSample(easy3d::PointCloud &cloud, unsigned int num_samples, bool with_log = true);
 		}  // namespace internal
 	}  // namespace preprocess
 
@@ -233,7 +237,6 @@ namespace tool {
 		 * @return
 		 */
 		std::vector<std::vector<size_t>> KNNSearch(const Eigen::MatrixXd &cloud, size_t k);
-		std::vector<std::vector<size_t>> SKNNSearch(const Eigen::MatrixXd &cloud, const size_t k);
 
 
 		/**
@@ -242,7 +245,6 @@ namespace tool {
 		 * @param radius The radius of the ball.
 		 */
 		std::vector<std::vector<size_t>> RadiusSearch(const Eigen::MatrixXd &cloud, double radius);
-		std::vector<std::vector<size_t>> SRadiusSearch(const Eigen::MatrixXd &cloud, const double radius);
 
 
 		/**
@@ -312,40 +314,35 @@ namespace tool {
 		void SaveSphereToPLY(const Eigen::Vector3d &center, double radius, const std::filesystem::path &filepath);
 
 
-		//	 	namespace visualize {
-		//	 		/**
-		//	 		 * @brief Draw the point clouds, for debugging.
-		//	 		 */
-		//	 		void DrawPointClouds(const std::string &group_title,
-		//	 							 const std::vector<std::pair<std::string, std::shared_ptr<Eigen::MatrixXd>>> &cloudsPairs);
-		//
-		//
-		//	 		/**
-		//	 		 * @brief Draw the mesh, for debugging.
-		//	 		 */
-		//	 		void DrawUnionLocalTriangles(const std::string &title,
-		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
-		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
-		//
-		//
-		//	 		/**
-		//	 		 * @brief Draw the mesh, for debugging.
-		//	 		 */
-		//	 		void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
-		//
-		//
-		//	 		/**
-		//	 		 * @brief Draw the point clouds, for debugging.
-		//	 		 */
-		//	 		void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, int k, int center_index);
-		//
-		//
-		//	 		void DrawTwoTangentPoints(const std::string &title,
-		//	 								  const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
-		//	 								  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr,
-		//	 								  int k,
-		//	 								  int center_index);
-		//	 	}  // namespace visualize
+		namespace visualize {
+			/**
+			 * @brief Draw the point clouds, for debugging.
+			 */
+			void DrawPointClouds(const std::string &group_title, const std::vector<std::pair<std::string, Eigen::MatrixXd>> &clouds_pairs);
+
+
+			/**
+			 * @brief Draw the mesh, for debugging.
+			 */
+			void DrawUnionLocalTriangles(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+										 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
+
+
+			/**
+			 * @brief Draw the mesh, for debugging.
+			 */
+			void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom);
+
+
+			/**
+			 * @brief Draw the point clouds, for debugging.
+			 */
+			void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, int k, int center_index);
+
+
+			void DrawTwoTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
+									  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr, int k, int center_index);
+		}  // namespace visualize
 	}  // namespace debug
 }  // namespace tool
 

@@ -16,16 +16,13 @@ if(APPLE)
     )
     set(OpenMP_ROOT "${BREW_PREFIX}/opt/libomp")
 endif()
-find_package(OpenMP COMPONENTS CXX)
+find_package(OpenMP COMPONENTS CXX REQUIRED)
 if(OpenMP_FOUND)
     message(STATUS "OpenMP found: ${OpenMP_VERSION}")
-else()
-    set(OpenMP_FLAGS )
-    message(WARNING "OpenMP not found, proceeding without OpenMP support")
 endif()
 
 # Find Easy3D; consider isolating Easy3D in a separate CMakeLists.txt
-set(easy3d_DIR "SkelSeg/3rd_party/easy3d/Release")
+set(easy3d_DIR "3rd_party/Easy3d/Release")
 find_package(easy3d REQUIRED)
 if(easy3d_FOUND)
     message(STATUS "Easy3D found: ${easy3d_VERSION}")
@@ -39,7 +36,8 @@ endif()
 ####################################################################################################
 ####################################################################################################
 
-add_subdirectory(SkelSeg/deps)
+add_subdirectory(deps)
+add_subdirectory(3rd_party/polyscope)
 
 include_directories(
         ${PROJECT_SOURCE_DIR}/SkelSeg/include
@@ -64,4 +62,5 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
         KDTree
         nlohmann
         plywoot
+        polyscope
 )

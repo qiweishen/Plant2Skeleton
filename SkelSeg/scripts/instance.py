@@ -1,3 +1,4 @@
+import os
 import json
 
 import numpy as np
@@ -13,7 +14,7 @@ def calculate_iou(ins_pred, ins_gt):
     return iou
 
 
-def instance_evaluation(pred_sem_label, gt_sem_label, pred_inst_label, gt_inst_label, plants):
+def instance_evaluation(pred_sem_label, gt_sem_label, pred_inst_label, gt_inst_label, plants, destination_directory):
     results = {}
 
     NUM_CLASSES = 2  # stem, leaf or just leaf
@@ -148,7 +149,7 @@ def instance_evaluation(pred_sem_label, gt_sem_label, pred_inst_label, gt_inst_l
 
     # Save results as a JSON file
     try:
-        with open("../../data/Output/P4-docs/instance_evaluation_results_global.json", "w") as json_file:
+        with open(os.path.join(destination_directory, "instance_evaluation_results_global.json"), "w") as json_file:
             json.dump(results, json_file, indent=4)
     except FileNotFoundError:
         print("Output directory not found. Please create it first.")

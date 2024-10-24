@@ -33,7 +33,7 @@ void Skeleton::EstablishLaplacianMatrix(const Eigen::MatrixXd &cloud) {
 		gc_geom.positions[i] = vertices_positions[i];
 	}
 	if (threshold_edge_length_ < 0.0) {
-		FindTipPoints(cloud, gc_cloud, gc_geom);
+		FindTipPoints();
 	}
 
 	UpdateNeighborhood(gc_cloud, gc_geom);
@@ -58,14 +58,50 @@ void Skeleton::EstablishLaplacianMatrix(const Eigen::MatrixXd &cloud) {
 }
 
 
-void Skeleton::FindTipPoints(const Eigen::MatrixXd &cloud, geometrycentral::pointcloud::PointCloud &gc_cloud,
-							 geometrycentral::pointcloud::PointPositionGeometry &gc_geom) {
+void Skeleton::FindTipPoints() {
 	Timer timer;
 
 	// Find the lowest vertex index
-	Eigen::VectorXd z_values = cloud.col(2);
+	Eigen::VectorXd z_values = cloud_.col(2);
 	int min_index;
 	z_values.minCoeff(&min_index);
+	tip_indices_.clear();
+	tip_indices_.emplace_back(min_index);
+	Eigen::Vector3d min_point = cloud_.row(min_index);
+
+	Eigen::MatrixXd InMat;
+	if (config_["Preprocess"]["Down_Sample_Number"] > 10240) {
+		std::vector<easy3d::vec3> cloud_vertices = tool::utility::Matrix2Vector<easy3d::vec3>(cloud_);
+		// Remove the lowest vertex
+		cloud_vertices.erase(cloud_vertices.begin() + min_index);
+		easy3d::PointCloud easy3d_cloud;
+		for (const easy3d::vec3 &vertex: cloud_vertices) {
+			easy3d_cloud.add_vertex(vertex);
+		}
+		tool::preprocess::internal::UniformDownSample(easy3d_cloud, 10240 - 1, false);
+		// Make sure include the lowest vertex
+		easy3d::PointCloud::VertexProperty<easy3d::vec3> points = easy3d_cloud.get_vertex_property<easy3d::vec3>("v:point");
+		InMat.resize(10240, 3);
+		for (easy3d::PointCloud::Vertex v: easy3d_cloud.vertices()) {
+			easy3d::vec3 point = points[v];
+			InMat.row(v.idx()) = Eigen::Vector3d{ point.x, point.y, point.z };
+		}
+		InMat.row(InMat.rows() - 1) = min_point;
+		min_index = static_cast<int>(InMat.rows()) - 1;
+	} else {
+		InMat.resize(pts_num_, 3);
+		InMat = cloud_;
+	}
+
+	// Initialize PointCloud and Geometry
+	geometrycentral::pointcloud::PointCloud gc_cloud(InMat.rows());
+	geometrycentral::pointcloud::PointPositionGeometry gc_geom(gc_cloud);
+	std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2Vector<geometrycentral::Vector3>(InMat);
+	for (int i = 0; i < InMat.rows(); ++i) {
+		gc_geom.positions[i] = vertices_positions[i];
+	}
+	gc_geom.kNeighborSize = 8;
+
 	// Compute the geodesic distance from the lowest vertex
 	// In the PointCloudHeatSolver function, below quantities are required:
 	//		geom.requireNeighbors();
@@ -76,27 +112,61 @@ void Skeleton::FindTipPoints(const Eigen::MatrixXd &cloud, geometrycentral::poin
 	geometrycentral::pointcloud::Point pSource = gc_cloud.point(min_index);
 	geometrycentral::pointcloud::PointData<double> distance = solver.computeDistance(pSource);
 	// Identify the tip points by using KNN and the geodesic distance
-	std::vector<std::vector<size_t>> neighbors_indices = tool::utility::RadiusSearch(cloud, radius_neighbor_);
-	tip_indices_.clear();
-	tip_indices_.emplace_back(min_index);
-	for (int i = 0; i < pts_num_; ++i) {
-		double center_value = distance[i];
-		std::vector<double> neighbor_values;
-		neighbor_values.reserve(neighbors_indices[i].size());
-		for (const size_t &index: neighbors_indices[i]) {
-			if (index == i) {
-				continue;  // Skip the center point
+	std::vector<std::vector<size_t>> neighbors_indices = tool::utility::KNNSearch(InMat, 30);
+	if (config_["Preprocess"]["Down_Sample_Number"] > 10240) {
+		std::vector<std::vector<double>> temp_tip_pts;
+		for (int i = 0; i < InMat.rows(); ++i) {
+			double center_value = distance[i];
+			std::vector<double> neighbor_values;
+			neighbor_values.reserve(30);
+			for (const size_t &index: neighbors_indices[i]) {
+				neighbor_values.emplace_back(distance[index]);
 			}
-			neighbor_values.emplace_back(distance[index]);
+			if (double max_neighbor_value = *std::ranges::max_element(neighbor_values); center_value > max_neighbor_value) {
+				temp_tip_pts.emplace_back(std::vector<double>{ InMat(i, 0), InMat(i, 1), InMat(i, 2) });
+			}
 		}
-		if (double max_neighbor_value = *std::ranges::max_element(neighbor_values); center_value > max_neighbor_value) {
-			tip_indices_.emplace_back(i);
+		KDTree kdtree(tool::utility::Matrix2Vector<std::vector<double>>(cloud_));
+		for (const std::vector<double> &tip_pt: temp_tip_pts) {
+			size_t pt_idx = kdtree.nearest_index(tip_pt);
+			tip_indices_.emplace_back(pt_idx);
+		}
+	} else {
+		for (int i = 0; i < InMat.rows(); ++i) {
+			double center_value = distance[i];
+			std::vector<double> neighbor_values;
+			neighbor_values.reserve(30);
+			for (const size_t &index: neighbors_indices[i]) {
+				neighbor_values.emplace_back(distance[index]);
+			}
+			if (double max_neighbor_value = *std::ranges::max_element(neighbor_values); center_value > max_neighbor_value) {
+				tip_indices_.emplace_back(i);
+			}
 		}
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
 	Logger::Instance().Log(std::format("Tip points have been found by using Geodesic distance! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO,
 						   IndentLevel::ONE, true, false);
+
+
+//	// --------------------------------------------------------------------------
+//	// Debug
+//	// --------------------------------------------------------------------------
+//	// For visualization
+//	Eigen::MatrixXd tip_points = Eigen::MatrixXd(tip_indices_.size(), 3);
+//	for (int i = 0; i < tip_indices_.size(); ++i) {
+//		tip_points.row(i) = cloud_.row(tip_indices_[i]);
+//	}
+//	tool::debug::visualize::DrawPointClouds("Original Cloud", { { "Original Vertex", cloud_ } });
+//	tool::debug::visualize::DrawPointClouds("Downsampled Cloud", { { "Vertex", InMat } });
+//	polyscope::getPointCloud("Vertex")->addScalarQuantity("Geodesic Distance", distance);
+//	tool::debug::visualize::DrawPointClouds("Tip Points", { { "Tip", tip_points } });
+//	Eigen::MatrixXd source_point = InMat.row(min_index);
+//	tool::debug::visualize::DrawPointClouds("Source Point", { { "Source", source_point } });
+//	// --------------------------------------------------------------------------
+//	// Debug
+//	// --------------------------------------------------------------------------
 }
 
 
@@ -111,8 +181,35 @@ void Skeleton::UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cl
 		} else {
 			gc_geom.neighborsQ.computed = true;
 			gc_geom.neighborsQ.requireCount = 1;
-			gc_geom.neighbors = std::make_unique<geometrycentral::pointcloud::Neighborhoods>(gc_cloud, gc_geom.positions, radius_neighbor_);
-			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbor_), LogLevel::INFO,
+			gc_geom.neighbors = std::make_unique<geometrycentral::pointcloud::Neighborhoods>(gc_cloud, gc_geom.positions, radius_neighbors_);
+			// If nNeigh is less than 2, it means the point quite isolated among its neighbors, just set to fix_eigen_ratio_
+			// To successfully compute the Laplacian Matrix, its 3 nearest neighbors will be set to its gc_geom.neighbors
+			std::vector<geometrycentral::pointcloud::Point> target_pts;
+			for (size_t iP = 0; iP < gc_cloud.nPoints(); iP++) {
+				size_t nNeigh = gc_geom.neighbors->neighbors[iP].size();
+				if (nNeigh < 3) {
+					sigma_.at(iP) = fix_eigen_ratio_;
+					target_pts.emplace_back(gc_cloud.point(iP));
+				}
+			}
+			if (!target_pts.empty()) {
+				GC_SAFETY_ASSERT(gc_cloud.isCompressed(), "cloud must be compressed");
+				std::vector<geometrycentral::Vector3> pointVec;
+				pointVec.reserve(gc_cloud.nPoints());
+				for (geometrycentral::pointcloud::Point p: gc_cloud.points()) {
+					pointVec.push_back(gc_geom.positions[p]);
+				}
+				// Find neighbors
+				geometrycentral::NearestNeighborFinder kdtree(pointVec);
+				for (const geometrycentral::pointcloud::Point &p: target_pts) {
+					gc_geom.neighbors->neighbors[p].resize(3);
+					std::vector<size_t> neighInd = kdtree.kNearestNeighbors(p.getIndex(), 3);
+					for (size_t i = 0; i < neighInd.size(); i++) {
+						gc_geom.neighbors->neighbors[p][i] = gc_cloud.point(neighInd[i]);
+					}
+				}
+			}
+			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbors_), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
 		}
 	} else {
@@ -122,11 +219,38 @@ void Skeleton::UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cl
 			Logger::Instance().Log(std::format("k-nearest neighbors value has been updated! Current: k = {}", k_neighbors_), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
 		} else {
-			radius_neighbor_ = radius_neighbor_ + delta_radius_ > max_radius_ ? max_radius_ : radius_neighbor_ + delta_radius_;
+			radius_neighbors_ = radius_neighbors_ - delta_radius_ < min_radius_ ? min_radius_ : radius_neighbors_ - delta_radius_;
 			gc_geom.neighborsQ.computed = true;
 			gc_geom.neighborsQ.requireCount = 1;
-			gc_geom.neighbors = std::make_unique<geometrycentral::pointcloud::Neighborhoods>(gc_cloud, gc_geom.positions, radius_neighbor_);
-			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbor_), LogLevel::INFO,
+			gc_geom.neighbors = std::make_unique<geometrycentral::pointcloud::Neighborhoods>(gc_cloud, gc_geom.positions, radius_neighbors_);
+			// If nNeigh is less than 2, it means the point quite isolated among its neighbors, just set to fix_eigen_ratio_
+			// To successfully compute the Laplacian Matrix, its 3 nearest neighbors will be set to its gc_geom.neighbors
+			std::vector<geometrycentral::pointcloud::Point> target_pts;
+			for (size_t iP = 0; iP < gc_cloud.nPoints(); iP++) {
+				size_t nNeigh = gc_geom.neighbors->neighbors[iP].size();
+				if (nNeigh < 3) {
+					sigma_.at(iP) = fix_eigen_ratio_;
+					target_pts.emplace_back(gc_cloud.point(iP));
+				}
+			}
+			if (!target_pts.empty()) {
+				GC_SAFETY_ASSERT(gc_cloud.isCompressed(), "cloud must be compressed");
+				std::vector<geometrycentral::Vector3> pointVec;
+				pointVec.reserve(gc_cloud.nPoints());
+				for (geometrycentral::pointcloud::Point p: gc_cloud.points()) {
+					pointVec.push_back(gc_geom.positions[p]);
+				}
+				// Find neighbors
+				geometrycentral::NearestNeighborFinder kdtree(pointVec);
+				for (const geometrycentral::pointcloud::Point &p: target_pts) {
+					gc_geom.neighbors->neighbors[p].resize(3);
+					std::vector<size_t> neighInd = kdtree.kNearestNeighbors(p.getIndex(), 3);
+					for (size_t i = 0; i < neighInd.size(); i++) {
+						gc_geom.neighbors->neighbors[p][i] = gc_cloud.point(neighInd[i]);
+					}
+				}
+			}
+			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbors_), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
 		}
 	}
@@ -446,7 +570,7 @@ void Skeleton::ComputeSigma(const Eigen::MatrixXd &cloud) {
 		std::vector<size_t> indices = neighbors_indices[i];
 
 		// If point does not meet these criteria, means it is quite isolated among its neighbors, just set to fix_eigen_ratio_
-		if (!(indices.size() >= 2)) {
+		if (indices.size() < 3) {
 			sigma_.at(i) = fix_eigen_ratio_;
 			continue;
 		}

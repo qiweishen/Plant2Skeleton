@@ -79,16 +79,15 @@ private:
 
 	// Recommend to change the following parameters in the ../configure.json file
 	const double diagonal_length_ = config_["Preprocess"]["Normalize_Diagonal_Length"].get<double>();
-	const bool use_knn_search_ = config_["Constraint_Laplacian_Operator"]["KNN_Search"].get<bool>();
+	const bool use_knn_search_ = config_["Constraint_Laplacian_Operator"]["Use_KNN_Search"].get<bool>();
 	int k_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_k"].get<int>();
 	const int delta_k_ = config_["Constraint_Laplacian_Operator"]["Delta_k"].get<int>();
 	const int max_k_ = config_["Constraint_Laplacian_Operator"]["Max_k"].get<int>();
-	double radius_neighbor_ = config_["Constraint_Laplacian_Operator"]["Initial_Radius_Ratio"].get<double>() * diagonal_length_;
-	const double delta_radius_ = config_["Constraint_Laplacian_Operator"]["Delta_Radius_Ratio"].get<double>() * diagonal_length_;
-	const double max_radius_ = config_["Constraint_Laplacian_Operator"]["Max_Radius_Ratio"].get<double>() * diagonal_length_;
+	double radius_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_Radius_Search_Ratio"].get<double>() * diagonal_length_;
+	const double delta_radius_ = config_["Constraint_Laplacian_Operator"]["Delta_Radius_Search_Ratio"].get<double>() * diagonal_length_;
+	const double min_radius_ = config_["Constraint_Laplacian_Operator"]["Min_Radius_Search_Ratio"].get<double>() * diagonal_length_;
 	const double fix_eigen_ratio_ = config_["Adaptive_Contraction"]["Smooth_Sigma_Threshold"].get<double>();
 	const double sigma_radius_ = config_["Adaptive_Contraction"]["Sigma_Sphere_Radius_Ratio"].get<double>() * diagonal_length_;
-	const int sigma_k_ = config_["Adaptive_Contraction"]["Sigma_KNN_Search"].get<int>();
 	const double max_distance_ = config_["Adaptive_Contraction"]["Max_Distance_Ratio"].get<double>() * diagonal_length_;
 	const int max_iteration_time_ = config_["Terminate_Condition"]["Max_Iteration"].get<int>();
 	const double contraction_threshold_ = config_["Terminate_Condition"]["Convergence_Threshold"].get<double>();
@@ -99,8 +98,7 @@ private:
 
 	void EstablishLaplacianMatrix(const Eigen::MatrixXd &cloud);
 
-	void FindTipPoints(const Eigen::MatrixXd &cloud, geometrycentral::pointcloud::PointCloud &gc_cloud,
-					   geometrycentral::pointcloud::PointPositionGeometry &gc_geom);
+	void FindTipPoints();
 
 	void UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cloud, geometrycentral::pointcloud::PointPositionGeometry &gc_geom);
 

@@ -94,58 +94,89 @@ void Graph::PruneMST() {
 
 	pruned_mst_.clear();
 
-	Boost_Graph g = mst_;
-	std::vector<size_t> degrees(num_vertices(g), 0);
+	// Copy the MST to a modifiable graph
+	boost::copy_graph(mst_, pruned_mst_);
+
+	// Get the vertex index mapping
+	auto index_map = boost::get(boost::vertex_index, pruned_mst_);
+	size_t num_vertices_in_graph = num_vertices(pruned_mst_);
+	size_t min_branch_length = std::ceil(min_branch_length_ratio_ * static_cast<int>(num_vertices_in_graph));
+
+	// Initialize degrees of each vertex
+	std::vector<size_t> degrees(num_vertices_in_graph);
 	Boost_VertexIt vi, vi_end;
-	for (std::tie(vi, vi_end) = vertices(g); vi != vi_end; ++vi) {
-		degrees[*vi] = degree(*vi, g);
+	for (std::tie(vi, vi_end) = vertices(pruned_mst_); vi != vi_end; ++vi) {
+		size_t index = index_map[*vi];
+		degrees[index] = degree(*vi, pruned_mst_);
 	}
 
-	std::vector removal_map(num_vertices(g), -1);
-	int num_remaining = 0;
-	// Find and remove edges
-	std::vector<Boost_Vertex> vertices_to_remove;
-	for (std::tie(vi, vi_end) = vertices(g); vi != vi_end; ++vi) {
-		if (degrees[*vi] == 1) {
-			Boost_AdjIt ai, ai_end;
-			for (std::tie(ai, ai_end) = adjacent_vertices(*vi, g); ai != ai_end; ++ai) {
-				if (degrees[*ai] > 2) {
-					Boost_Edge e;
-					bool exists;
-					std::tie(e, exists) = edge(*vi, *ai, g);
-					if (exists) {
-						remove_edge(e, g);
-						vertices_to_remove.emplace_back(*vi);
+	// Mark vertices to remove
+	std::vector<bool> to_remove(num_vertices_in_graph, false);
+	// Track visited vertices
+	std::vector<bool> visited(num_vertices_in_graph, false);
+
+	// Iterate over each leaf node
+	for (std::tie(vi, vi_end) = vertices(pruned_mst_); vi != vi_end; ++vi) {
+		size_t index = index_map[*vi];
+		if (degrees[index] == 1 && !visited[index]) {
+			// Start traversal from the leaf node
+			std::vector<Boost_Vertex> path;
+			size_t path_length = 0;
+			Boost_Vertex current = *vi;
+			Boost_Vertex previous = Boost_Graph::null_vertex();
+			bool should_remove = true;
+
+			while (degrees[index_map[current]] <= 2) {
+				path.push_back(current);
+				visited[index_map[current]] = true;
+
+				if (path_length >= min_branch_length) {
+					should_remove = false;
+					break;
+				}
+
+				// Find the next vertex
+				Boost_AdjIt ai, ai_end;
+				Boost_Vertex next = Boost_Graph::null_vertex();
+				std::tie(ai, ai_end) = adjacent_vertices(current, pruned_mst_);
+				for (; ai != ai_end; ++ai) {
+					if (*ai != previous) {
+						next = *ai;
 						break;
 					}
-					removal_map[*vi] = num_remaining++;
+				}
+				if (next == Boost_Graph::null_vertex()) {
+					// No next vertex, end of path
+					break;
+				}
+
+				previous = current;
+				current = next;
+				path_length += 1;
+			}
+
+			if (should_remove) {
+				for (Boost_Vertex v: path) {
+					// Mark vertex for removal
+					to_remove[index_map[v]] = true;
 				}
 			}
 		}
 	}
 
-	std::ranges::sort(vertices_to_remove);
-	vertices_to_remove.erase(std::ranges::unique(vertices_to_remove).begin(), vertices_to_remove.end());
-	for (unsigned long &it: std::ranges::reverse_view(vertices_to_remove)) {
-		clear_vertex(it, g);
-		remove_vertex(it, g);
+	// Collect and remove marked vertices
+	std::vector<Boost_Vertex> vertices_to_remove;
+	for (std::tie(vi, vi_end) = vertices(pruned_mst_); vi != vi_end; ++vi) {
+		size_t index = index_map[*vi];
+		if (to_remove[index]) {
+			vertices_to_remove.push_back(*vi);
+		}
 	}
-
-	// Build the pruned MST
-	std::map<Boost_Vertex, Boost_Vertex> index_map;
-	// Add vertices
-	for (std::tie(vi, vi_end) = vertices(g); vi != vi_end; ++vi) {
-		Boost_Vertex new_vertex = boost::add_vertex(pruned_mst_);
-		pruned_mst_.m_vertices[new_vertex] = g[*vi];
-		index_map[*vi] = new_vertex;
-	}
-	// Add edges
-	Boost_EdgeIt ei, ei_end;
-	for (std::tie(ei, ei_end) = edges(g); ei != ei_end; ++ei) {
-		Boost_Vertex u = index_map[source(*ei, g)];
-		Boost_Vertex v = index_map[target(*ei, g)];
-		auto [fst, snd] = boost::add_edge(u, v, pruned_mst_);
-		pruned_mst_[fst] = g[*ei];
+	// Remove vertices in reverse order to avoid invalidating indices
+	std::sort(vertices_to_remove.begin(), vertices_to_remove.end(), std::greater<>());
+	for (Boost_Vertex v: vertices_to_remove) {
+		clear_vertex(v, pruned_mst_);
+		remove_vertex(v, pruned_mst_);
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();

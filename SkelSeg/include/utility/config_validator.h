@@ -276,16 +276,16 @@ namespace configvalidator {
 
 	// Validate "Constraint_Laplacian_Operator" section
 	std::optional<std::string> ValidateConstraintLaplacianOperator(const nlohmann::json &constraint_laplacian_operator) {
-		if (!constraint_laplacian_operator.contains("KNN_Search") || !constraint_laplacian_operator.contains("Radius_Search")) {
-			return "Missing 'KNN_Search' or 'Radius_Search' in 'Constraint_Laplacian_Operator'.";
+		if (!constraint_laplacian_operator.contains("Use_KNN_Search") || !constraint_laplacian_operator.contains("Use_Radius_Search")) {
+			return "Missing 'Use_KNN_Search' or 'Use_Radius_Search' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator["KNN_Search"].is_boolean() || !constraint_laplacian_operator["Radius_Search"].is_boolean()) {
-			return "Invalid 'KNN_Search' or 'Radius_Search' in 'Constraint_Laplacian_Operator'.";
+		if (!constraint_laplacian_operator["Use_KNN_Search"].is_boolean() || !constraint_laplacian_operator["Use_Radius_Search"].is_boolean()) {
+			return "Invalid 'Use_KNN_Search' or 'Use_Radius_Search' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (constraint_laplacian_operator["KNN_Search"].get<bool>() == constraint_laplacian_operator["Radius_Search"].get<bool>()) {
-			return "Only one of 'KNN_Search' or 'Radius_Search' should be true in 'Constraint_Laplacian_Operator'.";
+		if (constraint_laplacian_operator["Use_KNN_Search"].get<bool>() == constraint_laplacian_operator["Use_Radius_Search"].get<bool>()) {
+			return "Only one of 'Use_KNN_Search' or 'Use_Radius_Search' should be true in 'Constraint_Laplacian_Operator'.";
 		}
 
 		if (!constraint_laplacian_operator.contains("Initial_k") || !constraint_laplacian_operator["Initial_k"].is_number_integer()) {
@@ -300,16 +300,16 @@ namespace configvalidator {
 			return "Missing or invalid 'Max_k' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Initial_Radius_Ratio") || !constraint_laplacian_operator["Initial_Radius_Ratio"].is_number()) {
-			return "Missing or invalid 'Initial_Radius_Ratio' in 'Constraint_Laplacian_Operator'.";
+		if (!constraint_laplacian_operator.contains("Initial_Radius_Search_Ratio") || !constraint_laplacian_operator["Initial_Radius_Search_Ratio"].is_number()) {
+			return "Missing or invalid 'Initial_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Delta_Radius_Ratio") || !constraint_laplacian_operator["Delta_Radius_Ratio"].is_number()) {
-			return "Missing or invalid 'Delta_Radius_Ratio' in 'Constraint_Laplacian_Operator'.";
+		if (!constraint_laplacian_operator.contains("Delta_Radius_Search_Ratio") || !constraint_laplacian_operator["Delta_Radius_Search_Ratio"].is_number()) {
+			return "Missing or invalid 'Delta_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Max_Radius_Ratio") || !constraint_laplacian_operator["Max_Radius_Ratio"].is_number()) {
-			return "Missing or invalid 'Max_Radius_Ratio' in 'Constraint_Laplacian_Operator'.";
+		if (!constraint_laplacian_operator.contains("Min_Radius_Search_Ratio") || !constraint_laplacian_operator["Min_Radius_Search_Ratio"].is_number()) {
+			return "Missing or invalid 'Min_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
 		}
 
 		return std::nullopt;
@@ -324,10 +324,6 @@ namespace configvalidator {
 
 		if (!adaptive_contraction.contains("Sigma_Sphere_Radius_Ratio") || !adaptive_contraction["Sigma_Sphere_Radius_Ratio"].is_number()) {
 			return "Missing or invalid 'Sigma_Sphere_Radius_Ratio' in 'Adaptive_Contraction'.";
-		}
-
-		if (!adaptive_contraction.contains("Sigma_KNN_Search") || !adaptive_contraction["Sigma_KNN_Search"].is_number_integer()) {
-			return "Missing or invalid 'Sigma_KNN_Search' in 'Adaptive_Contraction'.";
 		}
 
 		if (!adaptive_contraction.contains("Max_Distance_Ratio") || !adaptive_contraction["Max_Distance_Ratio"].is_number()) {
@@ -362,6 +358,10 @@ namespace configvalidator {
 			return "Missing or invalid 'LOP_Sphere_Radius_Ratio' in 'Skeleton_Building'.";
 		}
 
+		if (!skeleton_building.contains("Noise_Branch_Length_Ratio") || !skeleton_building["Noise_Branch_Length_Ratio"].is_number()) {
+			return "Missing or invalid 'Noise_Branch_Length_Ratio' in 'Skeleton_Building'.";
+		}
+
 		return std::nullopt;
 	}
 
@@ -388,7 +388,7 @@ namespace configvalidator {
 					for (int attempt = 0; attempt < max_attempts; ++attempt) {
 						std::cout << "Enter 'y' to terminate the program, or 'n' to continue and delete all contents: [y]/n" << std::endl;
 						std::getline(std::cin, input);
-						if (input == "y" || input == "Y") {
+						if (input == "y" || input == "Y" || input.empty()) {
 							std::exit(EXIT_FAILURE);
 						} else if (input == "n" || input == "N") {
 							// Delete all contents in the output folder

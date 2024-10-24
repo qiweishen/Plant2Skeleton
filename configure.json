@@ -3,7 +3,7 @@
         "Batch_Processing": false,
         "Bath_Processing_Folder_Path": "...",
         "Point_Cloud_File_Extension": "...",
-        "Point_Cloud_File_Path": "/Users/shenqiwei/Desktop/Plant2Skeleton/data/Dataset/Ours/Original/Binary/C20-2.ply",
+        "Point_Cloud_File_Path": "../data/Dataset/Ours/Original/Binary/C20-2.ply",
         "With_Labels": false,
         "Labels_Names": {
             "PLY_Format": {
@@ -28,23 +28,22 @@
         }
     },
     "Preprocess": {
-        "Down_Sample_Number": 51200,
-        "Normalize_Diagonal_Length": 1.6
+        "Down_Sample_Number": 10240,
+        "Normalize_Diagonal_Length": 1.60
     },
     "Constraint_Laplacian_Operator": {
-        "KNN_Search": false,
+        "Use_KNN_Search": false,
         "Initial_k": 8,
         "Delta_k": 4,
         "Max_k": 32,
-        "Radius_Search": true,
-        "Initial_Radius_Ratio": 0.015,
-        "Delta_Radius_Ratio": 0.010,
-        "Max_Radius_Ratio": 0.100
+        "Use_Radius_Search": true,
+        "Initial_Radius_Search_Ratio": 0.015,
+        "Delta_Radius_Search_Ratio": 0.005,
+        "Min_Radius_Search_Ratio": 0.005
     },
     "Adaptive_Contraction": {
         "Smooth_Sigma_Threshold": 0.90,
         "Sigma_Sphere_Radius_Ratio": 0.015,
-        "Sigma_KNN_Search": 8,
         "Max_Distance_Ratio": 0.005
     },
     "Terminate_Condition": {
@@ -52,8 +51,9 @@
         "Convergence_Threshold": 1e-4
     },
     "Skeleton_Building": {
-        "Down_Sample_Ratio": 0.20,
-        "LOP_Sphere_Radius_Ratio": 0.045
+        "Down_Sample_Ratio": 0.10,
+        "LOP_Sphere_Radius_Ratio": 0.045,
+        "Noise_Branch_Length_Ratio": 0.001
     },
     "Output_Settings": {
         "Output_Folder_Path": "../data/Output/Ours/C20-2",

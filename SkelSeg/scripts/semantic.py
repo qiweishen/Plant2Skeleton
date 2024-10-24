@@ -1,14 +1,16 @@
+import os
 import json
 
 import numpy as np
 from sklearn import metrics
 
 
-def semantic_evaluation(pred, gt, plants) -> dict:
+def semantic_evaluation(pred, gt, plants, destination_directory) -> dict:
     """
     :param pred: semantic prediction, list of ndarray(N), binary classification
     :param gt: semantic ground truth, list of ndarray(N), binary classification
     :param plants: list of plant numbers
+    :param destination_directory: str, path to save the results
     :return: dict, semantic evaluator results
     """
     results = {}
@@ -84,8 +86,11 @@ def semantic_evaluation(pred, gt, plants) -> dict:
     results["Overall"] = overall_semantic_dict
 
     # Saving the results to a JSON file
-    with open("../../data/Output/P4-docs/semantic_evaluation_results_global.json", "w") as f:
-        json.dump(results, f, indent=4)
+    try:
+        with open(os.path.join(destination_directory, "semantic_evaluation_results_global.json"), "w") as json_file:
+            json.dump(results, json_file, indent=4)
+    except FileNotFoundError:
+        print("Output directory not found. Please create it first.")
 
     return results
 

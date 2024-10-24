@@ -7,6 +7,7 @@
 #include <boost/graph/connected_components.hpp>
 #include <boost/graph/kruskal_min_spanning_tree.hpp>
 #include <boost/graph/properties.hpp>
+#include <boost/graph/copy.hpp>
 #include <ranges>
 
 #include "skeleton.h"
@@ -99,6 +100,7 @@ private:
 	// Hyper-parameters
 	// Recommend to change the following parameters in the ../configure.json file
 	const double diagonal_length_ = config_["Preprocess"]["Normalize_Diagonal_Length"].get<double>();
+	const double min_branch_length_ratio_ = config_["Skeleton_Building"]["Noise_Branch_Length_Ratio"].get<double>();
 	std::filesystem::path output_folder_path_ = config_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
 
 	void GetSkeletonGraph();

@@ -1,6 +1,7 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <utility/config_validator.h>
+#include <utility/evaluator.h>
 #include <utility/logger.h>
 
 #include "graph.h"
@@ -14,6 +15,7 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 	std::filesystem::path output_folder_path = config["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
 	std::string file_name = input_file_path.filename().string();
 	file_name = file_name.substr(0, file_name.find('.'));
+	Logger::Instance().AddLine(LogLine::DASH);
 	Logger::Instance().Log(std::format("{} Start Processing!", file_name));
 
 
@@ -60,21 +62,18 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 
 
 	// Detect Stem-Leaf points based on the skeleton segmentation
-	std::vector<int> estimated_labels =
-			tool::utility::NearestProjectFromBoostVertices(skeleton_mst_pruned_graph, input_cloud, skeleton_semantic_labels, "vertex");
+	std::vector<int> predicted_instance_labels =
+			tool::utility::NearestProjectFromBoostVertices(skeleton_mst_pruned_graph, input_cloud, skeleton_instance_labels, "vertex");
 
 
 	// Write the final PLY file
 	std::vector<int> predicted_semantic_labels(input_cloud.rows());
-	std::vector<int> predicted_instance_labels(input_cloud.rows());
 	std::pair<std::string, std::string> label_names = { "pred-semantic", "pred-instance" };
-	for (int i = 0; i < estimated_labels.size(); ++i) {
-		if (estimated_labels.at(i) == 0) {			  // Shoot
+	for (int i = 0; i < predicted_instance_labels.size(); ++i) {
+		if (predicted_instance_labels.at(i) == -1) {  // Shoot
 			predicted_semantic_labels.at(i) = 0;	  // Semantic label for shoot
-			predicted_instance_labels.at(i) = -1;	  // Instance label for shoot
 		} else {
 			predicted_semantic_labels.at(i) = 1;	  // Semantic label for leaf
-			predicted_instance_labels.at(i) = i - 1;  // Instance label for leaf
 		}
 	}
 	tool::io::SavePointCloudToPLY(input_cloud, output_folder_path / (file_name + "_Result.ply"), predicted_semantic_labels, predicted_instance_labels,
@@ -84,9 +83,8 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 	tool::io::SaveJSONFile(config, output_folder_path / "configure.json");
 
 
-	Logger::Instance().AddLine(LogLine::STAR);
+	Logger::Instance().AddLine(LogLine::DASH);
 	Logger::Instance().Log(std::format("{} Finished Processing!", file_name));
-	Logger::Instance().AddLine(LogLine::SHARP);
 }
 
 
@@ -139,13 +137,12 @@ int main() {
 
 
 // int main() {
-//     std::filesystem::path input_file_path =
-//     "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/Other-Skeletonlization/LBC/Ca46-4/Ca46-4_cpts_0.ply"; std::filesystem::path skeleton_path
-//     = "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/Other-Skeletonlization/WoodSKE/Ca46-4-SIMUSKE.xyz"; Eigen::MatrixXd cloud =
-//     tool::io::LoadPointCloud(input_file_path); Eigen::MatrixXd skeleton = tool::io::LoadPointCloud(skeleton_path); std::shared_ptr<Eigen::MatrixXd>
-//     cloudPtr = std::make_shared<Eigen::MatrixXd>(cloud); std::shared_ptr<Eigen::MatrixXd> skeletonPtr =
-//     std::make_shared<Eigen::MatrixXd>(skeleton); double avg_distance = evaluate::DistanceToOriginalPointCloud(cloudPtr, skeletonPtr, "average");
-//     double max_distance = evaluate::DistanceToOriginalPointCloud(cloudPtr, skeletonPtr, "max");
+//     std::filesystem::path input_file_path = "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/Ca46-4/1_Input.ply";
+//	 std::filesystem::path skeleton_path = "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/Other-Skeletonlization/WoodSKE/Ca46-4-SIMUSKE.xyz";
+//	 Eigen::MatrixXd original_cloud = evaluate::utility::LoadPointCloudFromPLY(input_file_path);
+////	 Boost_Graph skeleton_graph = evaluate::utility::LoadGraphFromPLY(skeleton_path);
+//	 std::vector<Eigen::Vector3d> cloud_vertices = tool::io::internal::LoadDataFromTXTXYZ<Eigen::Vector3d>(skeleton_path, 3);
+//	 Eigen::MatrixXd cloud = tool::utility::Vector2Matrix(cloud_vertices);
+//	 double avg_distance = evaluate::skeleton::QuantitativeSkeletonDistance(original_cloud, cloud);
 //     std::cout << std::format("Avg: {:.6f}", avg_distance) << std::endl;
-//     std::cout << std::format("Max: {:.6f}", max_distance) << std::endl;
 // }

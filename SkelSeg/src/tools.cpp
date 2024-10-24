@@ -11,7 +11,7 @@ namespace tool {
 			Logger::Instance().Log("Start Preprocess the Original Point Cloud");
 			Timer timer;
 			easy3d::PointCloud easy3d_cloud;
-			isPlyFormatBinary = config["Output_Settings"]["Output_PLY_File_DataFormat"].get<std::string>() == "Binary" ? true : false;
+			isPlyFormatBinary = config["Output_Settings"]["Output_PLY_File_DataFormat"].get<std::string>() == "Binary";
 			// Check if the input point cloud has labels
 			const bool with_labels = config["Input_Settings"]["With_Labels"].get<bool>();
 			if (!with_labels) {	 // No labels
@@ -105,7 +105,7 @@ namespace tool {
 		}
 
 		namespace internal {
-			void UniformDownSample(easy3d::PointCloud &cloud, unsigned int num_samples) {
+			void UniformDownSample(easy3d::PointCloud &cloud, unsigned int num_samples, bool with_log) {
 				Timer timer;
 				if (num_samples <= 0) {
 					Logger::Instance().Log("The downsample number must be greater than 0", LogLevel::ERROR);
@@ -122,9 +122,9 @@ namespace tool {
 					double initial_epsilon = easy3d::PointCloudSimplification::average_space(&cloud, kdtreePtr.get()) * 10.0;
 					std::vector<easy3d::PointCloud::Vertex> indices_to_delete =
 							easy3d::PointCloudSimplification::uniform_simplification(&cloud, static_cast<float>(initial_epsilon), kdtreePtr.get());
-					// Adjust epsilon until the number of points after deletion is within [num_points, num_points * 1.01]
+					// Adjust epsilon until the number of points after deletion is within [num_points, num_points * 1.05]
 					while (!(num_samples <= original_num_vertices - static_cast<int>(indices_to_delete.size()) &&
-							 num_samples * 1.01 >= original_num_vertices - static_cast<int>(indices_to_delete.size()))) {
+							 num_samples * 1.05 >= original_num_vertices - static_cast<int>(indices_to_delete.size()))) {
 						if (num_samples < original_num_vertices - static_cast<int>(indices_to_delete.size())) {
 							initial_epsilon *= 1.10;
 						} else {
@@ -152,9 +152,11 @@ namespace tool {
 					}
 				}
 				double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-				Logger::Instance().Log(
-						std::format("Original Point Cloud has been uniformly downsampled to #vertex {}! Elapsed time: {}", num_samples, elapsed),
-						LogLevel::INFO, IndentLevel::ONE, true, false);
+				if (with_log) {
+					Logger::Instance().Log(
+							std::format("Original Point Cloud has been uniformly downsampled to #vertex {}! Elapsed time: {}", num_samples, elapsed),
+							LogLevel::INFO, IndentLevel::ONE, true, false);
+				}
 			}
 		}  // namespace internal
 	}  // namespace preprocess
@@ -695,6 +697,7 @@ namespace tool {
 			std::vector<std::vector<double>> cloud_vertices = Matrix2Vector<std::vector<double>>(cloud);
 			KDTree kdtree(cloud_vertices);
 			std::vector<std::vector<size_t>> result(cloud_vertices.size());
+#pragma omp parallel for default(none) shared(cloud_vertices, kdtree, k, result)
 			for (size_t i = 0; i < cloud_vertices.size(); i++) {
 				std::vector<size_t> indices = kdtree.nearest_indices(cloud_vertices[i], k + 1);
 				indices.erase(std::remove(indices.begin(), indices.end(), i), indices.end());
@@ -708,33 +711,9 @@ namespace tool {
 			std::vector<std::vector<double>> cloud_vertices = Matrix2Vector<std::vector<double>>(cloud);
 			KDTree kdtree(cloud_vertices);
 			std::vector<std::vector<size_t>> result(cloud_vertices.size());
+#pragma omp parallel for default(none) shared(cloud_vertices, kdtree, radius, result)
 			for (size_t i = 0; i < cloud_vertices.size(); i++) {
 				result[i] = kdtree.neighborhood_indices(cloud_vertices[i], radius);
-			}
-			return result;
-		}
-
-
-		// TODO: KDTree is built by nanoflann, consider replace it by ETH_Kd_Tree or other modern libs for better performance
-		std::vector<std::vector<size_t>> SKNNSearch(const Eigen::MatrixXd &cloud, const size_t k) {
-			std::vector<geometrycentral::Vector3> points = Matrix2Vector<geometrycentral::Vector3>(cloud);
-			geometrycentral::NearestNeighborFinder finder(points);
-			std::vector<std::vector<size_t>> result;
-			for (size_t i = 0; i < points.size(); i++) {
-				result.emplace_back(finder.kNearestNeighbors(i, k));
-			}
-			return result;
-		}
-
-
-		// TODO: KDTree is built by nanoflann, consider replace it by ETH_Kd_Tree for better performance
-		std::vector<std::vector<size_t>> SRadiusSearch(const Eigen::MatrixXd &cloud, const double radius) {
-			std::vector<geometrycentral::Vector3> points = Matrix2Vector<geometrycentral::Vector3>(cloud);
-			geometrycentral::NearestNeighborFinder finder(points);
-			std::vector<std::vector<size_t>> result;
-			for (const geometrycentral::Vector3 &point: points) {
-				std::vector<size_t> temp = finder.radiusSearch(point, radius);
-				result.emplace_back(temp);
 			}
 			return result;
 		}
@@ -832,7 +811,7 @@ namespace tool {
 				KDTree kdtree(skeleton_vertices);
 				std::vector<int> nearest_skeleton_index(cloud.rows());
 				for (int i = 0; i < cloud.rows(); ++i) {
-					std::vector<double> query_point = { (cloud) (i, 0), (cloud) (i, 1), (cloud) (i, 2) };
+					std::vector<double> query_point = { cloud(i, 0), cloud(i, 1), cloud(i, 2) };
 					size_t index = kdtree.nearest_index(query_point);
 					nearest_skeleton_index[i] = static_cast<int>(index);
 				}
@@ -848,7 +827,7 @@ namespace tool {
 			double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
 			Logger::Instance().Log(std::format("Stem-Leaf detection has been completed! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
-			return {};
+			return result;
 		}
 	}  // namespace utility
 
@@ -938,368 +917,363 @@ namespace tool {
 		}
 
 
-		//	 	namespace visualize {
-		//	 		void DrawPointClouds(const std::string &group_title,
-		//	 							 const std::vector<std::pair<std::string, std::shared_ptr<Eigen::MatrixXd>>> &cloudsPairs) {
-		//	 			if (polyscope::isInitialized()) {
-		//	 				try {
-		//	 					polyscope::getGroup(group_title);
-		//	 				} catch (std::runtime_error &e) {
-		//	 					polyscope::createGroup(group_title);
-		//	 				}
-		//	 				polyscope::Group *group = polyscope::getGroup(group_title);
-		//	 				for (int i = 0; i < cloudsPairs.size(); ++i) {
-		//	 					const std::string &cloudName = cloudsPairs[i].first;
-		//	 					const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
-		//	 					std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(*cloudMatrix);
-		//	 					polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
-		//	 					if (cloudsPairs.size() > 1 && i == 0) {
-		//	 						psCloud->setPointRadius(0.001);
-		//	 					} else {
-		//	 						psCloud->setPointRadius(0.0015);
-		//	 					}
-		//	 					psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
-		//	 					// Add point cloud to the group
-		//	 					psCloud->addToGroup(*group);
-		//	 				}
-		//	 				// Set some options
-		//	 				group->setEnabled(true);
-		//	 				group->setHideDescendantsFromStructureLists(true);
-		//	 				group->setShowChildDetails(true);
-		//	 			} else {
-		//	 				// Initialize
-		//	 				polyscope::init();
-		//
-		//	 				// Some options
-		//	 				polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-		//	 				polyscope::options::groundPlaneHeightFactor = 0.1;
-		//	 				polyscope::options::shadowDarkness = 0.3;
-		//	 				// A few camera options
-		//	 				polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-		//	 				polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-		//	 				polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-		//	 				// Create a group
-		//	 				polyscope::Group *group = polyscope::createGroup(group_title);
-		//	 				// Register the point clouds
-		//	 				for (int i = 0; i < cloudsPairs.size(); ++i) {
-		//	 					const std::string &cloudName = cloudsPairs[i].first;
-		//	 					const std::shared_ptr<Eigen::MatrixXd> &cloudMatrix = cloudsPairs[i].second;
-		//	 					std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(*cloudMatrix);
-		//	 					polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
-		//	 					if (cloudsPairs.size() > 1 && i == 0) {
-		//	 						psCloud->setPointRadius(0.001);
-		//	 					} else {
-		//	 						psCloud->setPointRadius(0.0015);
-		//	 					}
-		//	 					psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
-		//	 					// Add point cloud to the group
-		//	 					psCloud->addToGroup(*group);
-		//	 				}
-		//	 				// Set some options
-		//	 				group->setEnabled(true);
-		//	 				group->setHideDescendantsFromStructureLists(true);
-		//	 				group->setShowChildDetails(true);
-		//	 			}
-		//	 			// Show the GUI
-		//	 			polyscope::show();
-		//	 		}
-		//
-		//
-		//	 		void DrawUnionLocalTriangles(const std::string &title,
-		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
-		//	 									 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
-		//	 			// Initialize
-		//	 			polyscope::init();
-		//	 			// Some options
-		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-		//	 			polyscope::options::groundPlaneHeightFactor = 0.1;
-		//	 			polyscope::options::shadowDarkness = 0.3;
-		//	 			// A few camera options
-		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-		//	 			// Generate the local triangles
-		//	 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
-		//	 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
-		//	 			// Make a union mesh
-		//	 			std::vector<std::vector<size_t>> allTris = handleToFlatInds(*gc_cloudPtr, localTriPoint);
-		//	 			std::vector<geometrycentral::Vector3> posRaw(gc_cloudPtr->nPoints());
-		//	 			for (size_t iP = 0; iP < posRaw.size(); iP++) {
-		//	 				posRaw[iP] = gc_geom->positions[iP];
-		//	 			}
-		//	 			// Register the mesh
-		//	 			polyscope::registerSurfaceMesh(title, posRaw, allTris);
-		//	 			// Show the GUI
-		//	 			polyscope::show();
-		//	 		}
-		//
-		//
-		//	 		void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom)
-		//{
-		//	 			// Initialize
-		//	 			polyscope::init();
-		//	 			// Some options
-		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-		//	 			polyscope::options::groundPlaneHeightFactor = 0.1;
-		//	 			polyscope::options::shadowDarkness = 0.3;
-		//	 			// A few camera options
-		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-		//	 			// Generate the Tufted mesh
-		//	 			if (!gc_geom->tuftedMesh) {
-		//	 				gc_geom->requireTuftedTriangulation();
-		//	 			}
-		//	 			// Register the mesh
-		//	 			polyscope::registerSurfaceMesh(title, gc_geom->positions, gc_geom->tuftedMesh->getFaceVertexList());
-		//	 			// Show the GUI
-		//	 			polyscope::show();
-		//	 		}
-		//
-		//
-		//	 		void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, const int k, const int
-		// center_index) { 	 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_cloudPtr =
-		//	 					std::make_shared<geometrycentral::pointcloud::PointCloud>(cloudPtr->rows());
-		//	 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_geom =
-		//	 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_cloudPtr);
-		//	 			std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2Vector<geometrycentral::Vector3>(*cloudPtr);
-		//	 			for (int i = 0; i < cloudPtr->rows(); ++i) {
-		//	 				gc_geom->positions[i] = vertices_positions[i];
-		//	 			}
-		//	 			gc_geom->kNeighborSize = k;
-		//
-		//
-		//	 			// Prepare data
-		//	 			gc_geom->requireNeighbors();
-		//	 			gc_geom->requireTangentBasis();
-		//	 			gc_geom->requireTangentCoordinates();
-		//	 			std::vector<geometrycentral::pointcloud::Point> neigh = gc_geom->neighbors->neighbors[center_index];
-		//	 			std::vector<geometrycentral::Vector3> neigh_points;
-		//	 			neigh_points.reserve(neigh.size());
-		//	 			for (const geometrycentral::pointcloud::Point &point: neigh) {
-		//	 				neigh_points.emplace_back(gc_geom->positions[point.getIndex()]);
-		//	 			}
-		//
-		//
-		//	 			std::vector<geometrycentral::Vector2> tangentCoords = gc_geom->tangentCoordinates[center_index];
-		//	 			std::vector<geometrycentral::Vector3> origin;
-		//	 			origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
-		//
-		//
-		//	 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
-		//	 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
-		//	 			std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
-		//	 			std::vector<std::vector<size_t>> tris;
-		//	 			tris.reserve(localTri.size());
-		//	 			for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
-		//	 				std::vector<size_t> temp;
-		//	 				temp.reserve(tri.size());
-		//	 				for (const geometrycentral::pointcloud::Point &point: tri) {
-		//	 					temp.emplace_back(point.getIndex());
-		//	 				}
-		//	 				tris.emplace_back(temp);
-		//	 			}
-		//	 			std::vector<geometrycentral::Vector3> new_points;
-		//	 			geometrycentral::Vector3 center = gc_geom->positions[center_index];
-		//	 			geometrycentral::Vector3 normal = gc_geom->normals[center_index];
-		//	 			geometrycentral::Vector3 basisX = gc_geom->tangentBasis[center_index][0];
-		//	 			geometrycentral::Vector3 basisY = gc_geom->tangentBasis[center_index][1];
-		//	 			for (size_t iN = 0; iN < gc_geom->positions.size(); iN++) {
-		//	 				geometrycentral::Vector3 vec = gc_geom->positions[iN] - center;
-		//	 				vec = vec.removeComponent(normal);
-		//	 				geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
-		//	 				new_points.push_back(coord);
-		//	 			}
-		//	 			std::vector<geometrycentral::Vector3> new_neigh_points;
-		//	 			new_neigh_points.reserve(neigh.size());
-		//	 			for (const geometrycentral::pointcloud::Point &point: neigh) {
-		//	 				new_neigh_points.emplace_back(new_points[point.getIndex()]);
-		//	 			}
-		//
-		//	 			gc_geom->requireTuftedTriangulation();
-		//	 			std::vector<std::vector<size_t>> tufted_tri;
-		//	 			for (const std::vector<size_t> &tri: gc_geom->tuftedMesh->getFaceVertexList()) {
-		//	 				for (size_t vertex: tri) {
-		//	 					if (vertex == center_index) {
-		//	 						tufted_tri.push_back(tri);
-		//	 					}
-		//	 				}
-		//	 			}
-		//
-		//	 			// Initialize
-		//	 			polyscope::init();
-		//	 			// Some options
-		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-		//	 			polyscope::options::groundPlaneHeightFactor = -0.760f;
-		//	 			polyscope::options::shadowDarkness = 0.5;
-		//	 			// A few camera options
-		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-		//	 			polyscope::Group *group = polyscope::createGroup(title);
-		//	 			// Register
-		//
-		//	 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", vertices_positions);
-		//	 			//            psCloud_1->setPointRadius(0.0005);
-		//	 			//            psCloud_1->setPointColor(glm::vec3(145.0/255.0, 146.0/255.0, 145.0/255.0));
-		//	 			//            psCloud_1->addToGroup(*group);
-		//	 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
-		//	 			//            std::vector<geometrycentral::Vector3>{vertices_positions[center_index]}); psCloud_2->setPointRadius(0.0010);
-		//	 			//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
-		//	 			//            psCloud_2->addToGroup(*group);
-		//	 			//            polyscope::PointCloud *psCloud_3 = polyscope::registerPointCloud("pc_3", neigh_points);
-		//	 			//            psCloud_3->setPointRadius(0.0010);
-		//	 			//            psCloud_3->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
-		//	 			//            psCloud_3->addToGroup(*group);
-		//
-		//	 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud2D("pc_1", tangentCoords);
-		//	 			//            psCloud_1->setPointRadius(0.001);
-		//	 			//            psCloud_1->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
-		//	 			//            psCloud_1->addToGroup(*group);
-		//	 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud2D("pc_2", origin);
-		//	 			//            psCloud_2->setPointRadius(0.001);
-		//	 			//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
-		//	 			//            psCloud_2->addToGroup(*group);
-		//	 			//
-		//	 			//          // In 3D space, show triangles
-		//	 			polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
-		//	 			psMesh_1->setEdgeWidth(2.0);
-		//	 			psMesh_1->setTransparency(0.8);
-		//	 			psMesh_1->addToGroup(*group);
-		//	 			polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
-		//	 			psCloud_1->setPointRadius(0.00015);
-		//	 			psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
-		//	 			psCloud_1->addToGroup(*group);
-		//	 			polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
-		//	 			psCloud_2->setPointRadius(0.00025);
-		//	 			psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
-		//	 			psCloud_2->addToGroup(*group);
-		//	 			//
-		//	 			//            // In 3D space, show one-ring neighborhood and one-ring triangles
-		//	 			//            polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", gc_geom->positions, tufted_tri);
-		//	 			//            psMesh_1->setEdgeWidth(2.0);
-		//	 			//            psMesh_1->setTransparency(0.85);
-		//	 			//            psMesh_1->addToGroup(*group);
-		//	 			//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", neigh_points);
-		//	 			//            psCloud_1->setPointRadius(0.0005);
-		//	 			//            psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
-		//	 			//            psCloud_1->addToGroup(*group);
-		//	 			//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
-		//	 			//                                                                             std::vector<geometrycentral::Vector3>
-		//	 			//                                                                                     {vertices_positions[center_index]});
-		//	 			//            psCloud_2->setPointRadius(0.0005);
-		//	 			//            psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
-		//	 			//            psCloud_2->addToGroup(*group);
-		//
-		//	 			// Show the GUI
-		//	 			std::string myString = polyscope::view::getViewAsJson();
-		//	 			polyscope::show();
-		//	 		}
-		//
-		//
-		//	 		void DrawTwoTangentPoints(const std::string &title,
-		//	 								  const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
-		//	 								  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr,
-		//	 								  const int k,
-		//	 								  const int center_index) {
-		//	 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_origianl_cloudPtr =
-		//	 					std::make_shared<geometrycentral::pointcloud::PointCloud>(origianl_cloudPtr->rows());
-		//	 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_origianl_geom =
-		//	 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_origianl_cloudPtr);
-		//	 			std::vector<geometrycentral::Vector3> vertices_positions =
-		// tool::utility::Matrix2Vector<geometrycentral::Vector3>(*origianl_cloudPtr); 	 			for (int i = 0; i < origianl_cloudPtr->rows();
-		// ++i) { 	 				gc_origianl_geom->positions[i] = vertices_positions[i];
-		//	 			}
-		//	 			gc_origianl_geom->kNeighborSize = k;
-		//
-		//	 			std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_contracted_cloudPtr =
-		//	 					std::make_shared<geometrycentral::pointcloud::PointCloud>(contracted_cloudPtr->rows());
-		//	 			std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_contracted_geom =
-		//	 					std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_contracted_cloudPtr);
-		//	 			std::vector<geometrycentral::Vector3> contracted_vertices_positions =
-		//	 					tool::utility::Matrix2Vector<geometrycentral::Vector3>(*contracted_cloudPtr);
-		//	 			for (int i = 0; i < contracted_cloudPtr->rows(); ++i) {
-		//	 				gc_contracted_geom->positions[i] = contracted_vertices_positions[i];
-		//	 			}
-		//	 			gc_contracted_geom->kNeighborSize = k;
-		//
-		//
-		//	 			// Prepare data
-		//	 			gc_origianl_geom->requireNeighbors();
-		//	 			gc_origianl_geom->requireTangentBasis();
-		//	 			gc_origianl_geom->requireTangentCoordinates();
-		//	 			std::vector<geometrycentral::pointcloud::Point> neigh = gc_origianl_geom->neighbors->neighbors[center_index];
-		//
-		//
-		//	 			// Prepare data
-		//	 			gc_contracted_geom->requireNeighbors();
-		//	 			gc_contracted_geom->requireTangentBasis();
-		//	 			gc_contracted_geom->requireTangentCoordinates();
-		//	 			std::vector<geometrycentral::Vector2> tangentCoords = gc_contracted_geom->tangentCoordinates[center_index];
-		//	 			std::vector<geometrycentral::Vector3> origin;
-		//	 			origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
-		//
-		//
-		//	 			geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
-		//	 					geometrycentral::pointcloud::buildLocalTriangulations(*gc_origianl_cloudPtr, *gc_origianl_geom, true);
-		//	 			std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
-		//	 			std::vector<std::vector<size_t>> tris;
-		//	 			tris.reserve(localTri.size());
-		//	 			for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
-		//	 				std::vector<size_t> temp;
-		//	 				temp.reserve(tri.size());
-		//	 				for (const geometrycentral::pointcloud::Point &point: tri) {
-		//	 					temp.emplace_back(point.getIndex());
-		//	 				}
-		//	 				tris.emplace_back(temp);
-		//	 			}
-		//	 			std::vector<geometrycentral::Vector3> new_points;
-		//	 			geometrycentral::Vector3 center = gc_contracted_geom->positions[center_index];
-		//	 			geometrycentral::Vector3 normal = gc_contracted_geom->normals[center_index];
-		//	 			geometrycentral::Vector3 basisX = gc_contracted_geom->tangentBasis[center_index][0];
-		//	 			geometrycentral::Vector3 basisY = gc_contracted_geom->tangentBasis[center_index][1];
-		//	 			for (size_t iN = 0; iN < gc_contracted_geom->positions.size(); iN++) {
-		//	 				geometrycentral::Vector3 vec = gc_contracted_geom->positions[iN] - center;
-		//	 				vec = vec.removeComponent(normal);
-		//	 				geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
-		//	 				new_points.push_back(coord);
-		//	 			}
-		//	 			std::vector<geometrycentral::Vector3> new_neigh_points;
-		//	 			new_neigh_points.reserve(neigh.size());
-		//	 			for (const geometrycentral::pointcloud::Point &point: neigh) {
-		//	 				new_neigh_points.emplace_back(new_points[point.getIndex()]);
-		//	 			}
-		//
-		//	 			// Initialize
-		//	 			polyscope::init();
-		//	 			// Some options
-		//	 			polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
-		//	 			polyscope::options::groundPlaneHeightFactor = -0.760f;
-		//	 			polyscope::options::shadowDarkness = 0.5;
-		//	 			// A few camera options
-		//	 			polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
-		//	 			polyscope::view::setUpDir(polyscope::UpDir::ZUp);
-		//	 			polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
-		//	 			polyscope::Group *group = polyscope::createGroup(title);
-		//
-		//	 			// Register
-		//	 			polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
-		//	 			psMesh_1->setEdgeWidth(2.0);
-		//	 			psMesh_1->setTransparency(0.8);
-		//	 			psMesh_1->addToGroup(*group);
-		//	 			polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
-		//	 			psCloud_1->setPointRadius(0.00015);
-		//	 			psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
-		//	 			psCloud_1->addToGroup(*group);
-		//	 			polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
-		//	 			psCloud_2->setPointRadius(0.00025);
-		//	 			psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
-		//	 			psCloud_2->addToGroup(*group);
-		//
-		//	 			// Show the GUI
-		//	 			std::string myString = polyscope::view::getViewAsJson();
-		//	 			polyscope::show();
-		//	 		}
-		//	 	}  // namespace visualize
+		namespace visualize {
+			void DrawPointClouds(const std::string &group_title,
+								 const std::vector<std::pair<std::string, Eigen::MatrixXd>> &cloudsPairs) {
+				if (polyscope::isInitialized()) {
+					try {
+						polyscope::getGroup(group_title);
+					} catch (std::runtime_error &e) {
+						polyscope::createGroup(group_title);
+					}
+					polyscope::Group *group = polyscope::getGroup(group_title);
+					for (int i = 0; i < cloudsPairs.size(); ++i) {
+						const std::string &cloudName = cloudsPairs[i].first;
+						const Eigen::MatrixXd &cloudMatrix = cloudsPairs[i].second;
+						std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(cloudMatrix);
+						polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
+						if (cloudsPairs.size() > 1 && i == 0) {
+							psCloud->setPointRadius(0.001);
+						} else {
+							psCloud->setPointRadius(0.0015);
+						}
+						psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
+						// Add point cloud to the group
+						psCloud->addToGroup(*group);
+					}
+					// Set some options
+					group->setEnabled(true);
+					group->setHideDescendantsFromStructureLists(true);
+					group->setShowChildDetails(true);
+				} else {
+					// Initialize
+					polyscope::init();
+
+					// Some options
+					polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+					polyscope::options::groundPlaneHeightFactor = 0.1;
+					polyscope::options::shadowDarkness = 0.3;
+					// A few camera options
+					polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+					polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+					polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+					// Create a group
+					polyscope::Group *group = polyscope::createGroup(group_title);
+					// Register the point clouds
+					for (int i = 0; i < cloudsPairs.size(); ++i) {
+						const std::string &cloudName = cloudsPairs[i].first;
+						const Eigen::MatrixXd &cloudMatrix = cloudsPairs[i].second;
+						std::vector<geometrycentral::Vector3> points = utility::Matrix2Vector<geometrycentral::Vector3>(cloudMatrix);
+						polyscope::PointCloud *psCloud = polyscope::registerPointCloud(cloudName, points);
+						if (cloudsPairs.size() > 1 && i == 0) {
+							psCloud->setPointRadius(0.001);
+						} else {
+							psCloud->setPointRadius(0.0015);
+						}
+						psCloud->setPointRenderMode(polyscope::PointRenderMode::Sphere);
+						// Add point cloud to the group
+						psCloud->addToGroup(*group);
+					}
+					// Set some options
+					group->setEnabled(true);
+					group->setHideDescendantsFromStructureLists(true);
+					group->setShowChildDetails(true);
+				}
+				// Show the GUI
+				polyscope::show();
+			}
+
+
+			void DrawUnionLocalTriangles(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointCloud> &gc_cloudPtr,
+										 const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
+				// Initialize
+				polyscope::init();
+				// Some options
+				polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+				polyscope::options::groundPlaneHeightFactor = 0.1;
+				polyscope::options::shadowDarkness = 0.3;
+				// A few camera options
+				polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+				polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+				polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+				// Generate the local triangles
+				geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
+						geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
+				// Make a union mesh
+				std::vector<std::vector<size_t>> allTris = handleToFlatInds(*gc_cloudPtr, localTriPoint);
+				std::vector<geometrycentral::Vector3> posRaw(gc_cloudPtr->nPoints());
+				for (size_t iP = 0; iP < posRaw.size(); iP++) {
+					posRaw[iP] = gc_geom->positions[iP];
+				}
+				// Register the mesh
+				polyscope::registerSurfaceMesh(title, posRaw, allTris);
+				// Show the GUI
+				polyscope::show();
+			}
+
+
+			void DrawTuftedMesh(const std::string &title, const std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> &gc_geom) {
+				// Initialize
+				polyscope::init();
+				// Some options
+				polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+				polyscope::options::groundPlaneHeightFactor = 0.1;
+				polyscope::options::shadowDarkness = 0.3;
+				// A few camera options
+				polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+				polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+				polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+				// Generate the Tufted mesh
+				if (!gc_geom->tuftedMesh) {
+					gc_geom->requireTuftedTriangulation();
+				}
+				// Register the mesh
+				polyscope::registerSurfaceMesh(title, gc_geom->positions, gc_geom->tuftedMesh->getFaceVertexList());
+				// Show the GUI
+				polyscope::show();
+			}
+
+
+			void DrawTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &cloudPtr, const int k, const int center_index) {
+				std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_cloudPtr =
+						std::make_shared<geometrycentral::pointcloud::PointCloud>(cloudPtr->rows());
+				std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_geom =
+						std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_cloudPtr);
+				std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2Vector<geometrycentral::Vector3>(*cloudPtr);
+				for (int i = 0; i < cloudPtr->rows(); ++i) {
+					gc_geom->positions[i] = vertices_positions[i];
+				}
+				gc_geom->kNeighborSize = k;
+
+
+				// Prepare data
+				gc_geom->requireNeighbors();
+				gc_geom->requireTangentBasis();
+				gc_geom->requireTangentCoordinates();
+				std::vector<geometrycentral::pointcloud::Point> neigh = gc_geom->neighbors->neighbors[center_index];
+				std::vector<geometrycentral::Vector3> neigh_points;
+				neigh_points.reserve(neigh.size());
+				for (const geometrycentral::pointcloud::Point &point: neigh) {
+					neigh_points.emplace_back(gc_geom->positions[point.getIndex()]);
+				}
+
+
+				std::vector<geometrycentral::Vector2> tangentCoords = gc_geom->tangentCoordinates[center_index];
+				std::vector<geometrycentral::Vector3> origin;
+				origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
+
+
+				geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
+						geometrycentral::pointcloud::buildLocalTriangulations(*gc_cloudPtr, *gc_geom, true);
+				std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
+				std::vector<std::vector<size_t>> tris;
+				tris.reserve(localTri.size());
+				for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
+					std::vector<size_t> temp;
+					temp.reserve(tri.size());
+					for (const geometrycentral::pointcloud::Point &point: tri) {
+						temp.emplace_back(point.getIndex());
+					}
+					tris.emplace_back(temp);
+				}
+				std::vector<geometrycentral::Vector3> new_points;
+				geometrycentral::Vector3 center = gc_geom->positions[center_index];
+				geometrycentral::Vector3 normal = gc_geom->normals[center_index];
+				geometrycentral::Vector3 basisX = gc_geom->tangentBasis[center_index][0];
+				geometrycentral::Vector3 basisY = gc_geom->tangentBasis[center_index][1];
+				for (size_t iN = 0; iN < gc_geom->positions.size(); iN++) {
+					geometrycentral::Vector3 vec = gc_geom->positions[iN] - center;
+					vec = vec.removeComponent(normal);
+					geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
+					new_points.push_back(coord);
+				}
+				std::vector<geometrycentral::Vector3> new_neigh_points;
+				new_neigh_points.reserve(neigh.size());
+				for (const geometrycentral::pointcloud::Point &point: neigh) {
+					new_neigh_points.emplace_back(new_points[point.getIndex()]);
+				}
+
+				gc_geom->requireTuftedTriangulation();
+				std::vector<std::vector<size_t>> tufted_tri;
+				for (const std::vector<size_t> &tri: gc_geom->tuftedMesh->getFaceVertexList()) {
+					for (size_t vertex: tri) {
+						if (vertex == center_index) {
+							tufted_tri.push_back(tri);
+						}
+					}
+				}
+
+				// Initialize
+				polyscope::init();
+				// Some options
+				polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+				polyscope::options::groundPlaneHeightFactor = -0.760f;
+				polyscope::options::shadowDarkness = 0.5;
+				// A few camera options
+				polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+				polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+				polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+				polyscope::Group *group = polyscope::createGroup(title);
+				// Register
+
+				//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", vertices_positions);
+				//            psCloud_1->setPointRadius(0.0005);
+				//            psCloud_1->setPointColor(glm::vec3(145.0/255.0, 146.0/255.0, 145.0/255.0));
+				//            psCloud_1->addToGroup(*group);
+				//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
+				//            std::vector<geometrycentral::Vector3>{vertices_positions[center_index]}); psCloud_2->setPointRadius(0.0010);
+				//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+				//            psCloud_2->addToGroup(*group);
+				//            polyscope::PointCloud *psCloud_3 = polyscope::registerPointCloud("pc_3", neigh_points);
+				//            psCloud_3->setPointRadius(0.0010);
+				//            psCloud_3->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+				//            psCloud_3->addToGroup(*group);
+
+				//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud2D("pc_1", tangentCoords);
+				//            psCloud_1->setPointRadius(0.001);
+				//            psCloud_1->setPointColor(glm::vec3(49.0/255.0, 49.0/255.0, 129.0/255.0));
+				//            psCloud_1->addToGroup(*group);
+				//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud2D("pc_2", origin);
+				//            psCloud_2->setPointRadius(0.001);
+				//            psCloud_2->setPointColor(glm::vec3(255.0/255.0, 0.0/255.0, 0.0/255.0));
+				//            psCloud_2->addToGroup(*group);
+				//
+				//          // In 3D space, show triangles
+				polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
+				psMesh_1->setEdgeWidth(2.0);
+				psMesh_1->setTransparency(0.8);
+				psMesh_1->addToGroup(*group);
+				polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
+				psCloud_1->setPointRadius(0.00015);
+				psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
+				psCloud_1->addToGroup(*group);
+				polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
+				psCloud_2->setPointRadius(0.00025);
+				psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
+				psCloud_2->addToGroup(*group);
+				//
+				//            // In 3D space, show one-ring neighborhood and one-ring triangles
+				//            polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", gc_geom->positions, tufted_tri);
+				//            psMesh_1->setEdgeWidth(2.0);
+				//            psMesh_1->setTransparency(0.85);
+				//            psMesh_1->addToGroup(*group);
+				//            polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", neigh_points);
+				//            psCloud_1->setPointRadius(0.0005);
+				//            psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
+				//            psCloud_1->addToGroup(*group);
+				//            polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2",
+				//                                                                             std::vector<geometrycentral::Vector3>
+				//                                                                                     {vertices_positions[center_index]});
+				//            psCloud_2->setPointRadius(0.0005);
+				//            psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
+				//            psCloud_2->addToGroup(*group);
+
+				// Show the GUI
+				std::string myString = polyscope::view::getViewAsJson();
+				polyscope::show();
+			}
+
+
+			void DrawTwoTangentPoints(const std::string &title, const std::shared_ptr<Eigen::MatrixXd> &origianl_cloudPtr,
+									  const std::shared_ptr<Eigen::MatrixXd> &contracted_cloudPtr, const int k, const int center_index) {
+				std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_origianl_cloudPtr =
+						std::make_shared<geometrycentral::pointcloud::PointCloud>(origianl_cloudPtr->rows());
+				std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_origianl_geom =
+						std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_origianl_cloudPtr);
+				std::vector<geometrycentral::Vector3> vertices_positions = tool::utility::Matrix2Vector<geometrycentral::Vector3>(*origianl_cloudPtr);
+				for (int i = 0; i < origianl_cloudPtr->rows(); ++i) {
+					gc_origianl_geom->positions[i] = vertices_positions[i];
+				}
+				gc_origianl_geom->kNeighborSize = k;
+
+				std::shared_ptr<geometrycentral::pointcloud::PointCloud> gc_contracted_cloudPtr =
+						std::make_shared<geometrycentral::pointcloud::PointCloud>(contracted_cloudPtr->rows());
+				std::shared_ptr<geometrycentral::pointcloud::PointPositionGeometry> gc_contracted_geom =
+						std::make_shared<geometrycentral::pointcloud::PointPositionGeometry>(*gc_contracted_cloudPtr);
+				std::vector<geometrycentral::Vector3> contracted_vertices_positions =
+						tool::utility::Matrix2Vector<geometrycentral::Vector3>(*contracted_cloudPtr);
+				for (int i = 0; i < contracted_cloudPtr->rows(); ++i) {
+					gc_contracted_geom->positions[i] = contracted_vertices_positions[i];
+				}
+				gc_contracted_geom->kNeighborSize = k;
+
+
+				// Prepare data
+				gc_origianl_geom->requireNeighbors();
+				gc_origianl_geom->requireTangentBasis();
+				gc_origianl_geom->requireTangentCoordinates();
+				std::vector<geometrycentral::pointcloud::Point> neigh = gc_origianl_geom->neighbors->neighbors[center_index];
+
+
+				// Prepare data
+				gc_contracted_geom->requireNeighbors();
+				gc_contracted_geom->requireTangentBasis();
+				gc_contracted_geom->requireTangentCoordinates();
+				std::vector<geometrycentral::Vector2> tangentCoords = gc_contracted_geom->tangentCoordinates[center_index];
+				std::vector<geometrycentral::Vector3> origin;
+				origin.emplace_back(geometrycentral::Vector3{ 0.0, 0.0, 0.0 });
+
+
+				geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> localTriPoint =
+						geometrycentral::pointcloud::buildLocalTriangulations(*gc_origianl_cloudPtr, *gc_origianl_geom, true);
+				std::vector<std::array<geometrycentral::pointcloud::Point, 3>> localTri = localTriPoint[center_index];
+				std::vector<std::vector<size_t>> tris;
+				tris.reserve(localTri.size());
+				for (const std::array<geometrycentral::pointcloud::Point, 3> &tri: localTri) {
+					std::vector<size_t> temp;
+					temp.reserve(tri.size());
+					for (const geometrycentral::pointcloud::Point &point: tri) {
+						temp.emplace_back(point.getIndex());
+					}
+					tris.emplace_back(temp);
+				}
+				std::vector<geometrycentral::Vector3> new_points;
+				geometrycentral::Vector3 center = gc_contracted_geom->positions[center_index];
+				geometrycentral::Vector3 normal = gc_contracted_geom->normals[center_index];
+				geometrycentral::Vector3 basisX = gc_contracted_geom->tangentBasis[center_index][0];
+				geometrycentral::Vector3 basisY = gc_contracted_geom->tangentBasis[center_index][1];
+				for (size_t iN = 0; iN < gc_contracted_geom->positions.size(); iN++) {
+					geometrycentral::Vector3 vec = gc_contracted_geom->positions[iN] - center;
+					vec = vec.removeComponent(normal);
+					geometrycentral::Vector3 coord{ dot(basisX, vec), dot(basisY, vec), 0.0 };
+					new_points.push_back(coord);
+				}
+				std::vector<geometrycentral::Vector3> new_neigh_points;
+				new_neigh_points.reserve(neigh.size());
+				for (const geometrycentral::pointcloud::Point &point: neigh) {
+					new_neigh_points.emplace_back(new_points[point.getIndex()]);
+				}
+
+				// Initialize
+				polyscope::init();
+				// Some options
+				polyscope::options::groundPlaneMode = polyscope::GroundPlaneMode::ShadowOnly;
+				polyscope::options::groundPlaneHeightFactor = -0.760f;
+				polyscope::options::shadowDarkness = 0.5;
+				// A few camera options
+				polyscope::view::setNavigateStyle(polyscope::NavigateStyle::Turntable);
+				polyscope::view::setUpDir(polyscope::UpDir::ZUp);
+				polyscope::view::setFrontDir(polyscope::FrontDir::XFront);
+				polyscope::Group *group = polyscope::createGroup(title);
+
+				// Register
+				polyscope::SurfaceMesh *psMesh_1 = polyscope::registerSurfaceMesh("mesh_1", new_points, tris);
+				psMesh_1->setEdgeWidth(2.0);
+				psMesh_1->setTransparency(0.8);
+				psMesh_1->addToGroup(*group);
+				polyscope::PointCloud *psCloud_1 = polyscope::registerPointCloud("pc_1", new_neigh_points);
+				psCloud_1->setPointRadius(0.00015);
+				psCloud_1->setPointColor(glm::vec3(49.0 / 255.0, 49.0 / 255.0, 129.0 / 255.0));
+				psCloud_1->addToGroup(*group);
+				polyscope::PointCloud *psCloud_2 = polyscope::registerPointCloud("pc_2", origin);
+				psCloud_2->setPointRadius(0.00025);
+				psCloud_2->setPointColor(glm::vec3(255.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0));
+				psCloud_2->addToGroup(*group);
+
+				// Show the GUI
+				std::string myString = polyscope::view::getViewAsJson();
+				polyscope::show();
+			}
+		}  // namespace visualize
 	}  // namespace debug
 }  // namespace tool
