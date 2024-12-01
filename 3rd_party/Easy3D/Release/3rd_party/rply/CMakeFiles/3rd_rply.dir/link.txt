@@ -1,2 +1,0 @@
-/Library/Developer/CommandLineTools/usr/bin/ar qc ../../lib/lib3rd_rply.a CMakeFiles/3rd_rply.dir/rply.c.o
-/Library/Developer/CommandLineTools/usr/bin/ranlib ../../lib/lib3rd_rply.a
