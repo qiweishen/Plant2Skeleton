@@ -1,8 +1,9 @@
 .idea/
 cmake-build-debug/
 cmake-build-release/
+/3rd_party/
 /data/
-/test/
+
 
 # For MacOS
 *.DS_Store
