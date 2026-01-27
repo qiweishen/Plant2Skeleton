@@ -22,7 +22,7 @@ if(OpenMP_FOUND)
 endif()
 
 # Find Easy3D; consider isolating Easy3D in a separate CMakeLists.txt
-set(easy3d_DIR "3rd_party/Easy3d/Release")
+set(easy3d_DIR "/Users/qiwei/Desktop/Easy3d/Release")
 find_package(easy3d REQUIRED)
 if(easy3d_FOUND)
     message(STATUS "Easy3D found: ${easy3d_VERSION}")
@@ -37,7 +37,7 @@ endif()
 ####################################################################################################
 
 add_subdirectory(deps)
-add_subdirectory(3rd_party/polyscope)
+#add_subdirectory(3rd_party/polyscope)
 
 include_directories(
         ${PROJECT_SOURCE_DIR}/SkelSeg/include
@@ -62,5 +62,5 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
         KDTree
         nlohmann
         plywoot
-        polyscope
+#        polyscope
 )
