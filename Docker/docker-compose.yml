@@ -1,0 +1,52 @@
+services:
+    skelseg-dev:
+        container_name: skelseg-dev
+        build:
+            context: ..
+            dockerfile: Docker/Dockerfile
+
+        # Keep container running for interactive use
+        stdin_open: true
+        tty: true
+
+        # Network and IPC
+        network_mode: host
+        ipc: host
+
+        # Debugging support
+        cap_add:
+            - SYS_PTRACE
+        security_opt:
+            - seccomp:unconfined
+            - apparmor:unconfined
+
+        environment:
+            PYTHONUNBUFFERED: 1
+            # X11
+            DISPLAY: ${DISPLAY:-:0}
+            XAUTHORITY: /tmp/.docker.xauth
+            # Wayland
+            WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-}
+            XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/run/user/1000}
+            # Audio
+            PULSE_SERVER: ${PULSE_SERVER:-unix:/run/user/1000/pulse/native}
+            # Software rendering (set 0 for GPU acceleration)
+            LIBGL_ALWAYS_SOFTWARE: 1
+
+        volumes:
+            - ..:/workspace
+            # X11 socket and auth
+            - /tmp/.X11-unix:/tmp/.X11-unix:rw
+            - ${HOME}/.Xauthority:/tmp/.docker.xauth:ro
+            # WSLg (safe to include on native Linux)
+            - /mnt/wslg:/mnt/wslg
+            # User runtime (audio, D-Bus, etc.)
+            - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}
+
+        working_dir: /workspace
+
+        # Nvidia GPU (requires nvidia-container-toolkit)
+        # runtime: nvidia
+        # environment:
+        #   NVIDIA_VISIBLE_DEVICES: all
+        #   NVIDIA_DRIVER_CAPABILITIES: all
