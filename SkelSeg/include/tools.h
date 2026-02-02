@@ -14,9 +14,6 @@
 #include <geometrycentral/utilities/vector3.h>
 #include <memory>
 #include <plywoot.hpp>
-#include <polyscope/point_cloud.h>
-#include <polyscope/polyscope.h>
-#include <polyscope/surface_mesh.h>
 #include <utility/timer.h>
 
 #include "graph.h"

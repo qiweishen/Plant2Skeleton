@@ -7,6 +7,7 @@
 
 
 
+
 class MyViewer : public easy3d::ViewerImGui {
 public:
     MyViewer() : ViewerImGui("SkelSeg") {}
@@ -68,6 +69,7 @@ private:
         std::cout << "Adding leaves...\n";
     }
 };
+
 
 int main(int argc, char** argv) {
     easy3d::initialize();

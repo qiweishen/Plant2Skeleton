@@ -6,17 +6,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Find Easy3D
-set(easy3d_DIR "/Users/qiwei/Desktop/Easy3D/Release")
-find_package(easy3d REQUIRED)
-if(easy3d_FOUND)
-    message(STATUS "Easy3D found: ${easy3d_VERSION}")
+set(Easy3D_DIR "/usr/local/easy3d-2.6.1/lib/CMake")
+find_package(Easy3D REQUIRED)
+if(Easy3D_FOUND)
+    message(STATUS "Easy3D found: ${Easy3D_VERSION}")
 endif()
 
-# Easy3D source root
-set(EASY3D_ROOT "/Users/qiwei/Desktop/Easy3D")
-
 # ImGui source files
-set(IMGUI_DIR "${EASY3D_ROOT}/3rd_party/imgui")
+set(Easy3D_ROOT "/src/Easy3D")
+set(IMGUI_DIR "${Easy3D_ROOT}/3rd_party/imgui")
 set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui.cpp
     ${IMGUI_DIR}/imgui_draw.cpp
@@ -36,8 +34,8 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
-    ${EASY3D_ROOT}/3rd_party/glfw/include
-    ${EASY3D_ROOT}
+    ${Easy3D_ROOT}/3rd_party/glfw/include
+    ${Easy3D_ROOT}
 )
 
 # Link all required Easy3D components

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22...3.25)
-project(Skeleton_Segmentation LANGUAGES CXX)
+project(SkelSeg LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20) # Ranges library (C++20), std::ranges is used in this project
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,24 +8,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 ####################################################################################################
 ####################################################################################################
 # OpenMP is a compiler feature; use find_package
-if(APPLE)
-    execute_process(
-            COMMAND brew --prefix
-            OUTPUT_VARIABLE BREW_PREFIX
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    set(OpenMP_ROOT "${BREW_PREFIX}/opt/libomp")
-endif()
 find_package(OpenMP COMPONENTS CXX REQUIRED)
 if(OpenMP_FOUND)
     message(STATUS "OpenMP found: ${OpenMP_VERSION}")
 endif()
 
 # Find Easy3D; consider isolating Easy3D in a separate CMakeLists.txt
-set(easy3d_DIR "/Users/qiwei/Desktop/Easy3d/Release")
-find_package(easy3d REQUIRED)
-if(easy3d_FOUND)
-    message(STATUS "Easy3D found: ${easy3d_VERSION}")
+set(Easy3D_DIR "/usr/local/easy3d-2.6.1/lib/CMake")
+find_package(Easy3D REQUIRED)
+if(Easy3D_FOUND)
+    message(STATUS "Easy3D found: ${Easy3D_VERSION}")
 endif()
 
 # Find Boost; consider isolating Boost in a separate CMakeLists.txt
@@ -37,7 +29,6 @@ endif()
 ####################################################################################################
 
 add_subdirectory(deps)
-#add_subdirectory(3rd_party/polyscope)
 
 include_directories(
         ${PROJECT_SOURCE_DIR}/SkelSeg/include
@@ -62,5 +53,4 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
         KDTree
         nlohmann
         plywoot
-#        polyscope
 )

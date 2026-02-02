@@ -29,12 +29,12 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 	Eigen::MatrixXd laplacian_skeleton = skeleton.GetLaplacianSkeleton();
 
 
-	// Down sample the skeleton using farthest point down sampling
-	const auto down_sample_number =
+	// Down sample the skeleton using the farthest point downsampling
+	const auto downsample_number =
 			static_cast<size_t>(std::round(config["Skeleton_Building"]["Down_Sample_Ratio"].get<double>() * laplacian_skeleton.rows()));
 	Eigen::MatrixXd skeleton_points_cloud;
 	std::vector<size_t> _;
-	std::tie(skeleton_points_cloud, _) = tool::utility::FarthestPointDownSample(laplacian_skeleton, down_sample_number);
+	std::tie(skeleton_points_cloud, _) = tool::utility::FarthestPointDownSample(laplacian_skeleton, downsample_number);
 	tool::io::SavePointCloudToPLY(skeleton_points_cloud, output_folder_path / "2_FPS-Downsampled.ply");
 
 
@@ -133,16 +133,3 @@ int main() {
 
 	return EXIT_SUCCESS;
 }
-
-
-
-// int main() {
-//     std::filesystem::path input_file_path = "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/Ca46-4/1_Input.ply";
-//	 std::filesystem::path skeleton_path = "/Users/shenqiwei/Documents/Windows/Skeleton_Compare/Other-Skeletonlization/WoodSKE/Ca46-4-SIMUSKE.xyz";
-//	 Eigen::MatrixXd original_cloud = evaluate::utility::LoadPointCloudFromPLY(input_file_path);
-////	 Boost_Graph skeleton_graph = evaluate::utility::LoadGraphFromPLY(skeleton_path);
-//	 std::vector<Eigen::Vector3d> cloud_vertices = tool::io::internal::LoadDataFromTXTXYZ<Eigen::Vector3d>(skeleton_path, 3);
-//	 Eigen::MatrixXd cloud = tool::utility::Vector2Matrix(cloud_vertices);
-//	 double avg_distance = evaluate::skeleton::QuantitativeSkeletonDistance(original_cloud, cloud);
-//     std::cout << std::format("Avg: {:.6f}", avg_distance) << std::endl;
-// }
