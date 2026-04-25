@@ -35,6 +35,8 @@ services:
 
         volumes:
             - ..:/workspace
+            # Mount our dataset directory
+            - /mnt/SharedData/SkelSeg-Appendix:/workspace/dataset
             # X11 socket and auth
             - /tmp/.X11-unix:/tmp/.X11-unix:rw
             - ${HOME}/.Xauthority:/tmp/.docker.xauth:ro

@@ -1,7 +1,6 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
 #include <utility/config_validator.h>
-#include <utility/evaluator.h>
 #include <utility/logger.h>
 
 #include "graph.h"
@@ -10,13 +9,13 @@
 #include "tools.h"
 
 
-
 void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &config) {
 	std::filesystem::path output_folder_path = config["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
+	std::filesystem::create_directories(output_folder_path / ".iterations");
 	std::string file_name = input_file_path.filename().string();
 	file_name = file_name.substr(0, file_name.find('.'));
 	Logger::Instance().AddLine(LogLine::DASH);
-	Logger::Instance().Log(std::format("{} Start Processing!", file_name));
+	Logger::Instance().Log(fmt::format("{} Start Processing!", file_name));
 
 
 	// Load the point cloud
@@ -70,10 +69,11 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 	std::vector<int> predicted_semantic_labels(input_cloud.rows());
 	std::pair<std::string, std::string> label_names = { "pred-semantic", "pred-instance" };
 	for (int i = 0; i < predicted_instance_labels.size(); ++i) {
-		if (predicted_instance_labels.at(i) == -1) {  // Shoot
-			predicted_semantic_labels.at(i) = 0;	  // Semantic label for shoot
+		if (predicted_instance_labels.at(i) == -1) {
+			// Shoot
+			predicted_semantic_labels.at(i) = 0;  // Semantic label for shoot
 		} else {
-			predicted_semantic_labels.at(i) = 1;	  // Semantic label for leaf
+			predicted_semantic_labels.at(i) = 1;  // Semantic label for leaf
 		}
 	}
 	tool::io::SavePointCloudToPLY(input_cloud, output_folder_path / (file_name + "_Result.ply"), predicted_semantic_labels, predicted_instance_labels,
@@ -84,22 +84,27 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 
 
 	Logger::Instance().AddLine(LogLine::DASH);
-	Logger::Instance().Log(std::format("{} Finished Processing!", file_name));
+	Logger::Instance().Log(fmt::format("{} Finished Processing!", file_name));
 }
 
 
 int main() {
 	// Load the configuration file
-	std::filesystem::path config_file_path = "../configure.json";
+	std::filesystem::path config_file_path = "../../configure.json";
 	std::ifstream config_file(config_file_path);
 	if (!config_file.is_open()) {
-		throw std::runtime_error(std::format("Failed to open the configuration file: {}", config_file_path.string()));
+		throw std::runtime_error(fmt::format("Failed to open the configuration file: {}", config_file_path.string()));
 	}
 	nlohmann::json config;
 	try {
 		config_file >> config;
 	} catch (const nlohmann::json::parse_error &e) {
-		throw std::runtime_error(std::format("Failed to parse the configuration file: {}", e.what()));
+		throw std::runtime_error(fmt::format("Failed to parse the configuration file: {}", e.what()));
+	}
+	if (!config["Input_Settings"]["Batch_Processing"].get<bool>()) {
+		std::filesystem::path file_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
+		config["Output_Settings"]["Output_Folder_Path"] =
+				std::filesystem::path(config["Output_Settings"]["Output_Folder_Path"].get<std::string>()) / file_path.stem();
 	}
 	configvalidator::ValidateConfig(config);
 
@@ -115,20 +120,22 @@ int main() {
 	if (config["Input_Settings"]["Batch_Processing"].get<bool>()) {
 		Logger::Instance().Log("Batch Processing Mode!");
 
-		std::filesystem::path batch_folder_path = config["Input_Settings"]["Batch_Folder_Path"].get<std::filesystem::path>();
+		std::filesystem::path batch_folder_path = config["Input_Settings"]["Batch_Processing_Folder_Path"].get<std::filesystem::path>();
 		std::string file_extension = config["Input_Settings"]["Point_Cloud_File_Extension"].get<std::string>();
+		const auto base_output = config["Output_Settings"]["Output_Folder_Path"].get<std::string>();
+
 		for (const auto &entry: std::filesystem::directory_iterator(batch_folder_path)) {
 			if (entry.is_regular_file()) {
 				if (entry.path().extension() == file_extension) {
+					config["Output_Settings"]["Output_Folder_Path"] = (std::filesystem::path(base_output) / entry.path().stem()).string();
+					config["Input_Settings"]["Point_Cloud_File_Path"] = entry.path().string();
 					MainProcess(entry.path(), config);
 				}
 			}
 		}
 	} else {
 		Logger::Instance().Log("Single Processing Mode!");
-
-		std::filesystem::path file_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
-		MainProcess(file_path, config);
+		MainProcess(config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>(), config);
 	}
 
 	return EXIT_SUCCESS;

@@ -23,7 +23,7 @@ namespace geometrycentral {
 
 //			for (Point p: cloud.points()) {
 //				size_t nNeigh = geom.neighbors->neighbors[p].size();
-#pragma omp parallel for default(none) shared(cloud, geom, result, withDegeneracyHeuristic, DEGENERATE_THRESH)
+#pragma omp parallel for default(none) shared(cloud, geom, result, withDegeneracyHeuristic, DEGENERATE_THRESH, std::cerr)
 			for (size_t i = 0; i < cloud.nPoints(); i++) {
 				Point p = cloud.point(i);
 				size_t nNeigh = geom.neighbors->neighbors[p].size();

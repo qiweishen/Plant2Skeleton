@@ -6,7 +6,6 @@
 #include "tools.h"
 
 
-
 double GetAlpha(const Eigen::Vector3d &point_xi, const Eigen::Vector3d &point_pj, const double &h);
 
 
@@ -15,7 +14,6 @@ Eigen::Vector3d GetFirstTerm(const Eigen::Vector3d &point_xi, const double &h, c
 
 
 Eigen::MatrixXd LOPCalibrate(const Eigen::MatrixXd &cloud, const Eigen::MatrixXd &skeleton_cloud, const nlohmann::json &config);
-
 
 
 #endif	// LOP_H

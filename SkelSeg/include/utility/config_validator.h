@@ -5,12 +5,11 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <format>
+#include <fmt/format.h>
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
-
 
 
 namespace configvalidator {
@@ -47,7 +46,7 @@ namespace configvalidator {
 	std::optional<std::string> ValidateOutputSettings(const nlohmann::json &output_settings);
 
 
-	std::string ToLower(std::string str) {
+	inline std::string ToLower(std::string str) {
 		std::ranges::transform(str, str.begin(), [](unsigned char c) { return std::tolower(c); });
 		return str;
 	}
@@ -61,12 +60,12 @@ namespace configvalidator {
 			}
 			return true;
 		} else {
-			throw std::runtime_error(std::format("Missing or invalid '{}' section.", section_name));
+			throw std::runtime_error(fmt::format("Missing or invalid '{}' section.", section_name));
 		}
 	}
 
 
-	bool ValidateConfig(const nlohmann::json &config) {
+	inline bool ValidateConfig(const nlohmann::json &config) {
 		bool is_valid = true;
 
 		is_valid &= CheckSection(config, "Input_Settings", ValidateInputSettings);
@@ -82,7 +81,7 @@ namespace configvalidator {
 
 
 	// Validate "Input_Settings" section
-	std::optional<std::string> ValidateInputSettings(const nlohmann::json &input_settings) {
+	inline std::optional<std::string> ValidateInputSettings(const nlohmann::json &input_settings) {
 		// Check "Batch_Processing"
 		if (!input_settings.contains("Batch_Processing") || !input_settings["Batch_Processing"].is_boolean()) {
 			return "Missing or invalid 'Batch_Processing' in 'Input_Settings'.";
@@ -98,10 +97,10 @@ namespace configvalidator {
 			std::filesystem::path folder_path = input_settings["Batch_Processing_Folder_Path"].get<std::filesystem::path>();
 			try {
 				if (!std::filesystem::is_directory(folder_path)) {
-					return std::format("Invalid 'Batch_Processing_Folder_Path': '{}' is not a directory.", folder_path.string());
+					return fmt::format("Invalid 'Batch_Processing_Folder_Path': '{}' is not a directory.", folder_path.string());
 				}
 			} catch (const std::filesystem::filesystem_error &e) {
-				return std::format("Filesystem error: {}", e.what());
+				return fmt::format("Filesystem error: {}", e.what());
 			}
 
 			// Check "Point_Cloud_File_Extension"
@@ -110,7 +109,7 @@ namespace configvalidator {
 			}
 			std::string file_extension = ToLower(input_settings["Point_Cloud_File_Extension"].get<std::string>());
 			if (file_extension != ".ply" && file_extension != ".xyz" && file_extension != ".txt") {
-				return std::format(
+				return fmt::format(
 						"Invalid 'Point_Cloud_File_Extension' in 'Input_Settings'. '{}' is not supported. Supported formats: .ply, .xyz, .txt",
 						file_extension);
 			}
@@ -125,10 +124,10 @@ namespace configvalidator {
 			std::filesystem::path file_path = input_settings["Point_Cloud_File_Path"].get<std::string>();
 			try {
 				if (!std::filesystem::exists(file_path)) {
-					return std::format("Invalid 'Point_Cloud_File_Path': '{}' does not exist.", file_path.string());
+					return fmt::format("Invalid 'Point_Cloud_File_Path': '{}' does not exist.", file_path.string());
 				}
 			} catch (const std::filesystem::filesystem_error &e) {
-				return std::format("Filesystem error: {}", e.what());
+				return fmt::format("Filesystem error: {}", e.what());
 			}
 		}
 
@@ -159,7 +158,7 @@ namespace configvalidator {
 
 
 	// Validate "Labels_Names" section
-	std::optional<std::string> ValidateLabelsNames(const nlohmann::json &labels_names, std::string_view extension) {
+	inline std::optional<std::string> ValidateLabelsNames(const nlohmann::json &labels_names, std::string_view extension) {
 		if (extension == ".ply") {
 			// Check "PLY_Format"
 			if (labels_names.contains("PLY_Format") && labels_names["PLY_Format"].is_object()) {
@@ -180,7 +179,7 @@ namespace configvalidator {
 
 
 	// Validate "PLY_Format" section
-	std::optional<std::string> ValidatePLYFormat(const nlohmann::json &ply_format) {
+	inline std::optional<std::string> ValidatePLYFormat(const nlohmann::json &ply_format) {
 		if (!ply_format.contains("Individual_Labels_File") || !ply_format["Individual_Labels_File"].is_boolean()) {
 			return "Missing or invalid 'Individual_Labels_File' in 'PLY_Format'.";
 		}
@@ -195,10 +194,10 @@ namespace configvalidator {
 					auto path = value.get<std::string>();
 					try {
 						if (!std::filesystem::exists(path)) {
-							return std::format("Invalid label file path '{}' in 'Labels_File_Paths'.", path);
+							return fmt::format("Invalid label file path '{}' in 'Labels_File_Paths'.", path);
 						}
 					} catch (const std::filesystem::filesystem_error &e) {
-						return std::format("Filesystem error: {}", e.what());
+						return fmt::format("Filesystem error: {}", e.what());
 					}
 				}
 			}
@@ -216,7 +215,7 @@ namespace configvalidator {
 
 
 	// Validate "TXT_XYZ_Format" section
-	std::optional<std::string> ValidateTXTXYZFormat(const nlohmann::json &txt_xyz_format) {
+	inline std::optional<std::string> ValidateTXTXYZFormat(const nlohmann::json &txt_xyz_format) {
 		if (!txt_xyz_format.contains("Individual_Labels_File") || !txt_xyz_format["Individual_Labels_File"].is_boolean()) {
 			return "Missing or invalid 'Individual_Labels_File' in 'TXT_XYZ_Format'.";
 		}
@@ -231,10 +230,10 @@ namespace configvalidator {
 					auto path = value.get<std::string>();
 					try {
 						if (!std::filesystem::exists(path)) {
-							return std::format("Invalid label file path '{}' in 'Labels_File_Paths'.", path);
+							return fmt::format("Invalid label file path '{}' in 'Labels_File_Paths'.", path);
 						}
 					} catch (const std::filesystem::filesystem_error &e) {
-						return std::format("Filesystem error: {}", e.what());
+						return fmt::format("Filesystem error: {}", e.what());
 					}
 				}
 			}
@@ -261,13 +260,13 @@ namespace configvalidator {
 
 
 	// Validate "Preprocess" section
-	std::optional<std::string> ValidatePreprocess(const nlohmann::json &preprocess) {
+	inline std::optional<std::string> ValidatePreprocess(const nlohmann::json &preprocess) {
 		if (!preprocess.contains("Down_Sample_Number") || !preprocess["Down_Sample_Number"].is_number_integer()) {
 			return "Missing or invalid 'Down_Sample_Number' in 'Preprocess'.";
 		}
 
-		if (!preprocess.contains("Normalize_Diagonal_Length") || !preprocess["Normalize_Diagonal_Length"].is_number()) {
-			return "Missing or invalid 'Normalize_Diagonal_Length' in 'Preprocess'.";
+		if (!preprocess.contains("Normalize_AABB_Length") || !preprocess["Normalize_AABB_Length"].is_number()) {
+			return "Missing or invalid 'Normalize_AABB_Length' in 'Preprocess'.";
 		}
 
 		return std::nullopt;
@@ -275,7 +274,7 @@ namespace configvalidator {
 
 
 	// Validate "Constraint_Laplacian_Operator" section
-	std::optional<std::string> ValidateConstraintLaplacianOperator(const nlohmann::json &constraint_laplacian_operator) {
+	inline std::optional<std::string> ValidateConstraintLaplacianOperator(const nlohmann::json &constraint_laplacian_operator) {
 		if (!constraint_laplacian_operator.contains("Use_KNN_Search") || !constraint_laplacian_operator.contains("Use_Radius_Search")) {
 			return "Missing 'Use_KNN_Search' or 'Use_Radius_Search' in 'Constraint_Laplacian_Operator'.";
 		}
@@ -300,15 +299,18 @@ namespace configvalidator {
 			return "Missing or invalid 'Max_k' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Initial_Radius_Search_Ratio") || !constraint_laplacian_operator["Initial_Radius_Search_Ratio"].is_number()) {
+		if (!constraint_laplacian_operator.contains("Initial_Radius_Search_Ratio") ||
+			!constraint_laplacian_operator["Initial_Radius_Search_Ratio"].is_number()) {
 			return "Missing or invalid 'Initial_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Delta_Radius_Search_Ratio") || !constraint_laplacian_operator["Delta_Radius_Search_Ratio"].is_number()) {
+		if (!constraint_laplacian_operator.contains("Delta_Radius_Search_Ratio") ||
+			!constraint_laplacian_operator["Delta_Radius_Search_Ratio"].is_number()) {
 			return "Missing or invalid 'Delta_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Min_Radius_Search_Ratio") || !constraint_laplacian_operator["Min_Radius_Search_Ratio"].is_number()) {
+		if (!constraint_laplacian_operator.contains("Min_Radius_Search_Ratio") ||
+			!constraint_laplacian_operator["Min_Radius_Search_Ratio"].is_number()) {
 			return "Missing or invalid 'Min_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
 		}
 
@@ -317,7 +319,7 @@ namespace configvalidator {
 
 
 	// Validate "Adaptive_Contraction" section
-	std::optional<std::string> ValidateAdaptiveContraction(const nlohmann::json &adaptive_contraction) {
+	inline std::optional<std::string> ValidateAdaptiveContraction(const nlohmann::json &adaptive_contraction) {
 		if (!adaptive_contraction.contains("Smooth_Sigma_Threshold") || !adaptive_contraction["Smooth_Sigma_Threshold"].is_number()) {
 			return "Missing or invalid 'Smooth_Sigma_Threshold' in 'Adaptive_Contraction'.";
 		}
@@ -335,7 +337,7 @@ namespace configvalidator {
 
 
 	// Validate "Terminate_Condition" section
-	std::optional<std::string> ValidateTerminateCondition(const nlohmann::json &terminate_condition) {
+	inline std::optional<std::string> ValidateTerminateCondition(const nlohmann::json &terminate_condition) {
 		if (!terminate_condition.contains("Max_Iteration") || !terminate_condition["Max_Iteration"].is_number_integer()) {
 			return "Missing or invalid 'Max_Iteration' in 'Terminate_Condition'.";
 		}
@@ -349,7 +351,7 @@ namespace configvalidator {
 
 
 	// Validate "Skeleton_Building" section
-	std::optional<std::string> ValidateSkeletonBuilding(const nlohmann::json &skeleton_building) {
+	inline std::optional<std::string> ValidateSkeletonBuilding(const nlohmann::json &skeleton_building) {
 		if (!skeleton_building.contains("Down_Sample_Ratio") || !skeleton_building["Down_Sample_Ratio"].is_number()) {
 			return "Missing or invalid 'Down_Sample_Ratio' in 'Skeleton_Building'.";
 		}
@@ -367,7 +369,7 @@ namespace configvalidator {
 
 
 	// Validate "Output_Settings" section
-	std::optional<std::string> ValidateOutputSettings(const nlohmann::json &output_settings) {
+	inline std::optional<std::string> ValidateOutputSettings(const nlohmann::json &output_settings) {
 		if (!output_settings.contains("Output_Folder_Path") || !output_settings["Output_Folder_Path"].is_string()) {
 			return "Missing or invalid 'Output_Folder_Path' in 'Output_Settings'.";
 		}
@@ -377,7 +379,6 @@ namespace configvalidator {
 			if (!std::filesystem::exists(output_folder_path)) {
 				// Create the output folder
 				std::filesystem::create_directories(output_folder_path);
-				std::filesystem::create_directories(output_folder_path / ".iterations");
 			} else {
 				// Check if the output folder contains subdirectories
 				bool has_contents = !std::filesystem::is_empty(output_folder_path);
@@ -394,7 +395,6 @@ namespace configvalidator {
 							// Delete all contents in the output folder
 							std::filesystem::remove_all(output_folder_path);
 							std::filesystem::create_directories(output_folder_path);
-							std::filesystem::create_directories(output_folder_path / ".iterations");
 							break;
 						} else {
 							std::cout << "Invalid input. Please enter 'y' or 'n'." << std::endl;
@@ -407,7 +407,7 @@ namespace configvalidator {
 				}
 			}
 		} catch (const std::filesystem::filesystem_error &e) {
-			return std::format("Filesystem error: {}", e.what());
+			return fmt::format("Filesystem error: {}", e.what());
 		}
 
 		if (!output_settings.contains("Output_PLY_File_DataFormat") || !output_settings["Output_PLY_File_DataFormat"].is_string()) {
@@ -422,7 +422,6 @@ namespace configvalidator {
 		return std::nullopt;
 	}
 }  // namespace configvalidator
-
 
 
 #endif	// CONFIG_VALIDATOR_H

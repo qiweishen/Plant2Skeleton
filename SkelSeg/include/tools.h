@@ -19,8 +19,8 @@
 #include "graph.h"
 
 
-
-inline bool isPlyFormatBinary;	// Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
+inline bool isPlyFormatBinary;
+// Whether to save the PLY file in binary format, true for binary, false for ASCII. Default is binary format.
 
 namespace tool {
 	namespace preprocess {
@@ -44,15 +44,15 @@ namespace tool {
 	}  // namespace preprocess
 
 
-
 	namespace io {
 		/**
 		 * @brief Load point cloud from Binary/ASCII PLY, XYZ or TXT file, which **only contains vertex information**. And save a copy PLY file in the
 		 * Output folder.
 		 * @param config The configuration file, used to specify the path to the Binary/ASCII PLY, XYZ or TXT file and the Output folder path.
+		 * @param backup Whether to backup original point cloud. ** ONLY FOR VIEWER **
 		 * @return Only returns the points in std::vector<easy3d::vec3>.
 		 */
-		std::vector<easy3d::vec3> LoadPointCloud(nlohmann::json &config);
+		std::vector<easy3d::vec3> LoadPointCloud(nlohmann::json &config, bool backup = true);
 
 
 		/**
@@ -164,6 +164,7 @@ namespace tool {
 			 */
 			template<typename T>
 			std::vector<T> LoadDataFromTXTXYZ(const std::filesystem::path &file_path, size_t dim, char delimiter = ' ');
+
 			template<typename T>
 			std::vector<T> ParseNDData(const std::string &data, size_t dim, char delimiter);
 
@@ -172,19 +173,23 @@ namespace tool {
 				Eigen::Vector3d pos;
 				int label1;
 				int label2;
+
 				DataPoint() : pos(Eigen::Vector3d::Zero()), label1(-2), label2(-2) {}
+
 				DataPoint(Eigen::Vector3d vec, int l1, int l2) : pos(std::move(vec)), label1(l1), label2(l2) {}
 			};
+
 			struct DataEdge {
 				Eigen::Vector2i idx;
 				int label1;
 				int label2;
+
 				DataEdge() : idx(Eigen::Vector2i::Zero()), label1(-2), label2(-2) {}
+
 				DataEdge(Eigen::Vector2i vec, int l1, int l2) : idx(std::move(vec)), label1(l1), label2(l2) {}
 			};
 		}  // namespace internal
 	}  // namespace io
-
 
 
 	namespace utility {
@@ -214,6 +219,7 @@ namespace tool {
 		 */
 		template<typename T>
 		Eigen::MatrixXd Vector2Matrix(const std::vector<T> &vec);
+
 		Eigen::MatrixXd Vector2Matrix(const std::vector<easy3d::vec3> &vec);
 
 
@@ -233,7 +239,7 @@ namespace tool {
 		 * @param k The number of neighbors to search.
 		 * @return
 		 */
-		std::vector<std::vector<size_t>> KNNSearch(const Eigen::MatrixXd &cloud, size_t k);
+		std::vector<std::vector<size_t> > KNNSearch(const Eigen::MatrixXd &cloud, size_t k);
 
 
 		/**
@@ -241,7 +247,7 @@ namespace tool {
 		 * @param cloud The point cloud.
 		 * @param radius The radius of the ball.
 		 */
-		std::vector<std::vector<size_t>> RadiusSearch(const Eigen::MatrixXd &cloud, double radius);
+		std::vector<std::vector<size_t> > RadiusSearch(const Eigen::MatrixXd &cloud, double radius);
 
 
 		/**
@@ -264,7 +270,7 @@ namespace tool {
 		 * @param num_samples The expected point number, which must be less than or equal to the original point number.
 		 * @return The sampled point cloud object and the indices of the sampled points.
 		 */
-		std::tuple<Eigen::MatrixXd, std::vector<size_t>> FarthestPointDownSample(const Eigen::MatrixXd &cloud, size_t num_samples);
+		std::tuple<Eigen::MatrixXd, std::vector<size_t> > FarthestPointDownSample(const Eigen::MatrixXd &cloud, size_t num_samples);
 
 
 		/**
@@ -292,7 +298,6 @@ namespace tool {
 	}  // namespace utility
 
 
-
 	namespace debug {
 		/**
 		 * @brief Compute the average number of non-zero values per row in the sparse matrix.
@@ -315,7 +320,7 @@ namespace tool {
 			/**
 			 * @brief Draw the point clouds, for debugging.
 			 */
-			void DrawPointClouds(const std::string &group_title, const std::vector<std::pair<std::string, Eigen::MatrixXd>> &clouds_pairs);
+			void DrawPointClouds(const std::string &group_title, const std::vector<std::pair<std::string, Eigen::MatrixXd> > &clouds_pairs);
 
 
 			/**
@@ -342,7 +347,6 @@ namespace tool {
 		}  // namespace visualize
 	}  // namespace debug
 }  // namespace tool
-
 
 
 #endif	// TOOLS_H

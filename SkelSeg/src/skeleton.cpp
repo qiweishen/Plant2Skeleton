@@ -3,7 +3,6 @@
 #include "tools.h"
 
 
-
 void Skeleton::InitializeParameters(const Eigen::MatrixXd &cloud) {
 	// Initialize Laplacian matrix
 	EstablishLaplacianMatrix(cloud);
@@ -18,7 +17,7 @@ void Skeleton::InitializeParameters(const Eigen::MatrixXd &cloud) {
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Weight matrices have been initialized! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
+	Logger::Instance().Log(fmt::format("Weight matrices have been initialized! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
 						   true, false);
 }
 
@@ -53,7 +52,7 @@ void Skeleton::EstablishLaplacianMatrix(const Eigen::MatrixXd &cloud) {
 	L_ = -(2 * gc_geom.laplacian);
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Laplacian matrix has been established! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
+	Logger::Instance().Log(fmt::format("Laplacian matrix has been established! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
 						   true, false);
 }
 
@@ -112,9 +111,9 @@ void Skeleton::FindTipPoints() {
 	geometrycentral::pointcloud::Point pSource = gc_cloud.point(min_index);
 	geometrycentral::pointcloud::PointData<double> distance = solver.computeDistance(pSource);
 	// Identify the tip points by using KNN and the geodesic distance
-	std::vector<std::vector<size_t>> neighbors_indices = tool::utility::KNNSearch(InMat, 30);
+	std::vector<std::vector<size_t> > neighbors_indices = tool::utility::KNNSearch(InMat, 30);
 	if (config_["Preprocess"]["Down_Sample_Number"] > 10240) {
-		std::vector<std::vector<double>> temp_tip_pts;
+		std::vector<std::vector<double> > temp_tip_pts;
 		for (int i = 0; i < InMat.rows(); ++i) {
 			double center_value = distance[i];
 			std::vector<double> neighbor_values;
@@ -126,7 +125,7 @@ void Skeleton::FindTipPoints() {
 				temp_tip_pts.emplace_back(std::vector<double>{ InMat(i, 0), InMat(i, 1), InMat(i, 2) });
 			}
 		}
-		KDTree kdtree(tool::utility::Matrix2Vector<std::vector<double>>(cloud_));
+		KDTree kdtree(tool::utility::Matrix2Vector<std::vector<double> >(cloud_));
 		for (const std::vector<double> &tip_pt: temp_tip_pts) {
 			size_t pt_idx = kdtree.nearest_index(tip_pt);
 			tip_indices_.emplace_back(pt_idx);
@@ -146,37 +145,19 @@ void Skeleton::FindTipPoints() {
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Tip points have been found by using Geodesic distance! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO,
+	Logger::Instance().Log(fmt::format("Tip points have been found by using Geodesic distance! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO,
 						   IndentLevel::ONE, true, false);
-
-
-//	// --------------------------------------------------------------------------
-//	// Debug
-//	// --------------------------------------------------------------------------
-//	// For visualization
-//	Eigen::MatrixXd tip_points = Eigen::MatrixXd(tip_indices_.size(), 3);
-//	for (int i = 0; i < tip_indices_.size(); ++i) {
-//		tip_points.row(i) = cloud_.row(tip_indices_[i]);
-//	}
-//	tool::debug::visualize::DrawPointClouds("Original Cloud", { { "Original Vertex", cloud_ } });
-//	tool::debug::visualize::DrawPointClouds("Downsampled Cloud", { { "Vertex", InMat } });
-//	polyscope::getPointCloud("Vertex")->addScalarQuantity("Geodesic Distance", distance);
-//	tool::debug::visualize::DrawPointClouds("Tip Points", { { "Tip", tip_points } });
-//	Eigen::MatrixXd source_point = InMat.row(min_index);
-//	tool::debug::visualize::DrawPointClouds("Source Point", { { "Source", source_point } });
-//	// --------------------------------------------------------------------------
-//	// Debug
-//	// --------------------------------------------------------------------------
 }
 
 
 void Skeleton::UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cloud, geometrycentral::pointcloud::PointPositionGeometry &gc_geom) {
-	if (threshold_edge_length_ < 0) {  // First iteration
+	if (threshold_edge_length_ < 0) {
+		// First iteration
 		geometrycentral::addition::UnrequireAllQuantities(gc_geom);
 		gc_geom.purgeQuantities();
 		if (use_knn_search_) {
 			gc_geom.kNeighborSize = k_neighbors_;
-			Logger::Instance().Log(std::format("k-nearest neighbors value has been updated! Current: k = {}", k_neighbors_), LogLevel::INFO,
+			Logger::Instance().Log(fmt::format("k-nearest neighbors value has been updated! Current: k = {}", k_neighbors_), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
 		} else {
 			gc_geom.neighborsQ.computed = true;
@@ -209,14 +190,14 @@ void Skeleton::UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cl
 					}
 				}
 			}
-			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbors_), LogLevel::INFO,
+			Logger::Instance().Log(fmt::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbors_), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
 		}
 	} else {
 		if (use_knn_search_) {
 			k_neighbors_ = k_neighbors_ + delta_k_ > max_k_ ? max_k_ : k_neighbors_ + delta_k_;
 			gc_geom.kNeighborSize = k_neighbors_;
-			Logger::Instance().Log(std::format("k-nearest neighbors value has been updated! Current: k = {}", k_neighbors_), LogLevel::INFO,
+			Logger::Instance().Log(fmt::format("k-nearest neighbors value has been updated! Current: k = {}", k_neighbors_), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
 		} else {
 			radius_neighbors_ = radius_neighbors_ - delta_radius_ < min_radius_ ? min_radius_ : radius_neighbors_ - delta_radius_;
@@ -250,7 +231,7 @@ void Skeleton::UpdateNeighborhood(geometrycentral::pointcloud::PointCloud &gc_cl
 					}
 				}
 			}
-			Logger::Instance().Log(std::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbors_), LogLevel::INFO,
+			Logger::Instance().Log(fmt::format("Radius neighbors value has been updated! Current: {:.4f} unit", radius_neighbors_), LogLevel::INFO,
 								   IndentLevel::ONE, true, false);
 		}
 	}
@@ -264,10 +245,10 @@ void Skeleton::FindEdgeThreshold(geometrycentral::pointcloud::PointCloud &gc_clo
 	// In the buildLocalTriangulations function, the following quantities are required:
 	//		geom.requireNeighbors();
 	//		geom.requireTangentCoordinates();
-	geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> local_tri_point =
+	geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3> > > local_tri_point =
 			buildLocalTriangulations(gc_cloud, gc_geom, true);
 	// Make a union of local triangles
-	std::vector<std::vector<size_t>> all_tris = handleToFlatInds(gc_cloud, local_tri_point);
+	std::vector<std::vector<size_t> > all_tris = handleToFlatInds(gc_cloud, local_tri_point);
 	std::vector<geometrycentral::Vector3> pos_raw(gc_cloud.nPoints());
 	for (size_t iP = 0; iP < pos_raw.size(); iP++) {
 		pos_raw[iP] = gc_geom.positions[iP];
@@ -285,7 +266,7 @@ void Skeleton::FindEdgeThreshold(geometrycentral::pointcloud::PointCloud &gc_clo
 	threshold_edge_length_ = long_edges_lengths.minCoeff();
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Threshold edge length has been initialized! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO,
+	Logger::Instance().Log(fmt::format("Threshold edge length has been initialized! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO,
 						   IndentLevel::ONE, true, false);
 }
 
@@ -298,11 +279,11 @@ void Skeleton::CollapseEdges(geometrycentral::pointcloud::PointCloud &gc_cloud, 
 	std::unique_ptr<geometrycentral::surface::EdgeLengthGeometry> tuftedGeomPtr;
 
 	// Generate the local triangles
-	geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3>>> local_tri_point =
+	geometrycentral::pointcloud::PointData<std::vector<std::array<geometrycentral::pointcloud::Point, 3> > > local_tri_point =
 			buildLocalTriangulations(gc_cloud, gc_geom, true);
 
 	// Make a union of local triangles
-	std::vector<std::vector<size_t>> all_tris = handleToFlatInds(gc_cloud, local_tri_point);
+	std::vector<std::vector<size_t> > all_tris = handleToFlatInds(gc_cloud, local_tri_point);
 	std::vector<geometrycentral::Vector3> pos_raw(gc_cloud.nPoints());
 	for (size_t iP = 0; iP < pos_raw.size(); iP++) {
 		pos_raw[iP] = gc_geom.positions[iP];
@@ -316,7 +297,7 @@ void Skeleton::CollapseEdges(geometrycentral::pointcloud::PointCloud &gc_cloud, 
 	// Find the Edge to be collapsed, and its adjacent faces
 	temp_geomPtr->requireEdgeLengths();
 	geometrycentral::surface::EdgeData<double> edge_lengths = temp_geomPtr->edgeLengths;
-	std::vector<std::vector<size_t>> faces_to_ignore;
+	std::vector<std::vector<size_t> > faces_to_ignore;
 #pragma omp parallel for default(none) shared(temp_meshPtr, edge_lengths, faces_to_ignore)
 	for (size_t i = 0; i < temp_meshPtr->nVertices(); i++) {
 		geometrycentral::surface::Vertex vert = temp_meshPtr->vertex(i);
@@ -416,7 +397,7 @@ void Skeleton::CollapseEdges(geometrycentral::pointcloud::PointCloud &gc_cloud, 
 	gc_geom.tuftedGeom = std::move(tuftedGeomPtr);
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Long edges have been ignored! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
+	Logger::Instance().Log(fmt::format("Long edges have been ignored! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
 						   false);
 }
 
@@ -440,12 +421,13 @@ std::tuple<Eigen::SparseMatrix<double>, Eigen::MatrixXd> Skeleton::DistanceConst
 	Eigen::VectorXd edge_lengths = gc_geomPtr->tuftedGeom->edgeLengths.toVector();
 
 	// Find edges and their constraints
-	std::vector<std::pair<int, int>> edges;
+	std::vector<std::pair<int, int> > edges;
 	std::vector<geometrycentral::Vector3> constraint_lengths;
 	Eigen::SparseMatrix<double> laplacian = gc_geomPtr->laplacian;
 	for (int k = 0; k < laplacian.outerSize(); ++k) {
 		for (Eigen::SparseMatrix<double>::InnerIterator it(laplacian, k); it; ++it) {
-			if (it.row() < it.col()) {	// Process each edge once
+			if (it.row() < it.col()) {
+				// Process each edge once
 				geometrycentral::Vector3 point_i = gc_geomPtr->positions[it.row()];
 				geometrycentral::Vector3 point_j = gc_geomPtr->positions[it.col()];
 
@@ -469,7 +451,7 @@ std::tuple<Eigen::SparseMatrix<double>, Eigen::MatrixXd> Skeleton::DistanceConst
 
 	// Create edge matrix H
 	Eigen::SparseMatrix<double> H(static_cast<int>(edges.size()), pts_num_);
-	std::vector<Eigen::Triplet<double>> tripletList;
+	std::vector<Eigen::Triplet<double> > tripletList;
 	for (size_t i = 0; i < edges.size(); ++i) {
 		tripletList.emplace_back(i, edges[i].first, 1.0);
 		tripletList.emplace_back(i, edges[i].second, -1.0);
@@ -477,7 +459,7 @@ std::tuple<Eigen::SparseMatrix<double>, Eigen::MatrixXd> Skeleton::DistanceConst
 	H.setFromTriplets(tripletList.begin(), tripletList.end());
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Distance constraints have been built! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
+	Logger::Instance().Log(fmt::format("Distance constraints have been built! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
 						   true, false);
 
 	return std::make_tuple(H, e);
@@ -490,7 +472,7 @@ Eigen::MatrixXd Skeleton::LaplacianContraction(const Eigen::MatrixXd &cloud) {
 	auto [H, e] = DistanceConstraint(cloud);
 
 	// Construct the matrix A (2pts_num_+H x pts_num_) { A = [L.*WL; sparse(1:P.npts, 1:P.npts, WH); sparse(1:P.npts, 1:P.npts, H)]}
-	std::vector<Eigen::Triplet<double>> A_tripletList;
+	std::vector<Eigen::Triplet<double> > A_tripletList;
 	for (int i = 0; i < pts_num_; ++i) {
 		for (Eigen::SparseMatrix<double>::InnerIterator it(L_, i); it; ++it) {
 			double value = it.value() * WL_.coeffRef(it.row());
@@ -517,7 +499,7 @@ Eigen::MatrixXd Skeleton::LaplacianContraction(const Eigen::MatrixXd &cloud) {
 	// Solve the linear system
 	Eigen::SparseMatrix<double> ATA = A.transpose() * A;
 	Eigen::MatrixXd ATb = A.transpose() * b;
-	Eigen::SimplicialCholesky<Eigen::SparseMatrix<double>> solver;
+	Eigen::SimplicialCholesky<Eigen::SparseMatrix<double> > solver;
 	solver.compute(ATA);
 	if (solver.info() != Eigen::Success) {
 		Logger::Instance().Log("Eigen decomposition failed!", LogLevel::ERROR);
@@ -525,7 +507,7 @@ Eigen::MatrixXd Skeleton::LaplacianContraction(const Eigen::MatrixXd &cloud) {
 	Eigen::MatrixXd cpts = solver.solve(ATb);
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Linear system has been solved! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
+	Logger::Instance().Log(fmt::format("Linear system has been solved! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
 						   false);
 	return cpts;
 }
@@ -549,7 +531,7 @@ void Skeleton::GetMeanVertexDualArea(const Eigen::MatrixXd &cloud) {
 	faces_area_.emplace_back(total_area);
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Mean vertex dual area has been updated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
+	Logger::Instance().Log(fmt::format("Mean vertex dual area has been updated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
 						   true, false);
 }
 
@@ -562,7 +544,7 @@ void Skeleton::ComputeSigma(const Eigen::MatrixXd &cloud) {
 	smooth_sigma_.clear();
 	smooth_sigma_.resize(pts_num_);
 
-	std::vector<std::vector<size_t>> neighbors_indices;
+	std::vector<std::vector<size_t> > neighbors_indices;
 	neighbors_indices = tool::utility::RadiusSearch(cloud, sigma_radius_);
 #pragma omp parallel for default(none) shared(neighbors_indices, cloud, Eigen::Dynamic)
 	for (int i = 0; i < pts_num_; ++i) {
@@ -608,7 +590,7 @@ void Skeleton::ComputeSigma(const Eigen::MatrixXd &cloud) {
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Smooth sigmas have been updated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
+	Logger::Instance().Log(fmt::format("Smooth sigmas have been updated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
 						   false);
 }
 
@@ -633,7 +615,7 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 	GetMeanVertexDualArea(cpts);
 	double contraction_rate = faces_area_.back() / faces_area_[0];
 	contraction_history.emplace_back(contraction_rate);
-	Logger::Instance().Log(std::format("Current mean area is: {:.6f}; the contract ratio is: {:.6f}", faces_area_.back(), contraction_rate),
+	Logger::Instance().Log(fmt::format("Current mean area is: {:.6f}; the contract ratio is: {:.6f}", faces_area_.back(), contraction_rate),
 						   LogLevel::INFO, IndentLevel::ONE, true, false);
 
 	// Compute sigma for the contracted points
@@ -645,14 +627,15 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 	// Start the contraction iterations
 	for (int i = 0; i < max_iteration_time_ - 1; ++i) {
 		Logger::Instance().AddLine(LogLine::DASH);
-		Logger::Instance().Log(std::format("Contraction iteration time: {}", i + 2), LogLevel::INFO, IndentLevel::ONE, true, false);
+		Logger::Instance().Log(fmt::format("Contraction iteration time: {}", i + 2), LogLevel::INFO, IndentLevel::ONE, true, false);
 
 		// Update Laplacian matrix
 		EstablishLaplacianMatrix(cpts);
 
 		// Fix the points with high sigma
 		for (int j = 0; j < pts_num_; ++j) {
-			if (WH_.coeffRef(j) == tip_point_WH_ || WH_.coeffRef(j) == contracted_point_WH_) {	// Skip the tip points and the contracted points
+			if (WH_.coeffRef(j) == tip_point_WH_ || WH_.coeffRef(j) == contracted_point_WH_) {
+				// Skip the tip points and the contracted points
 				continue;
 			} else if (smooth_sigma_.at(j) >= fix_eigen_ratio_) {
 				WL_.coeffRef(j) = contracted_point_WL_;
@@ -660,6 +643,7 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 			} else if (smooth_sigma_.at(j) >= fix_eigen_ratio_ - 0.10) {
 				continue;
 			} else {
+				// The ratio of WL_ and WH_
 				WL_.coeffRef(j) = WL_.coeffRef(j) * sL_ > max_WL_ ? max_WL_ : WL_.coeffRef(j) * sL_;
 			}
 		}
@@ -671,11 +655,11 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 		GetMeanVertexDualArea(cpts_temp);
 		contraction_rate = faces_area_.back() / faces_area_[0];
 		contraction_history.emplace_back(contraction_rate);
-		Logger::Instance().Log(std::format("Current mean area is: {:.6f}; the contract ratio is: {:.6f}", faces_area_.back(), contraction_rate),
+		Logger::Instance().Log(fmt::format("Current mean area is: {:.6f}; the contract ratio is: {:.6f}", faces_area_.back(), contraction_rate),
 							   LogLevel::INFO, IndentLevel::ONE, true, false);
 		if (contraction_history[i] - contraction_history.back() <= contraction_threshold_ || std::isnan(contraction_history.back())) {
 			Logger::Instance().Log(
-					std::format("Touch the threshold! Iteration {} terminated! Total valid contraction iteration time: {}", i + 2, i + 1),
+					fmt::format("Touch the threshold! Iteration {} terminated! Total valid contraction iteration time: {}", i + 2, i + 1),
 					LogLevel::INFO, IndentLevel::ONE, true, false);
 			break;
 		}
@@ -684,7 +668,7 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 		ComputeSigma(cpts_temp);
 
 		// Save the contracted points
-		tool::io::SavePointCloudToPLY(cpts_temp, output_path_ / std::format("cpts_{}.ply", std::to_string(i + 2)), smooth_sigma_, "smooth-sigma");
+		tool::io::SavePointCloudToPLY(cpts_temp, output_path_ / fmt::format("cpts_{}.ply", std::to_string(i + 2)), smooth_sigma_, "smooth-sigma");
 
 		// Update cpts
 		cpts = cpts_temp;
@@ -692,7 +676,6 @@ Eigen::MatrixXd Skeleton::ContractionIteration() {
 
 	return cpts;
 }
-
 
 
 namespace geometrycentral::addition {

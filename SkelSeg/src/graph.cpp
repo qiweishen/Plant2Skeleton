@@ -3,7 +3,6 @@
 #include "tools.h"
 
 
-
 void Graph::GetSkeletonGraph() {
 	Logger::Instance().AddLine(LogLine::DASH);
 	Logger::Instance().Log("Start generate initial graph", LogLevel::INFO);
@@ -11,10 +10,10 @@ void Graph::GetSkeletonGraph() {
 
 	graph_.clear();
 
-	std::vector<std::vector<double>> cloud_vertices = tool::utility::Matrix2Vector<std::vector<double>>(cloud_);
+	std::vector<std::vector<double> > cloud_vertices = tool::utility::Matrix2Vector<std::vector<double> >(cloud_);
 	KDTree kdtree(cloud_vertices);
 
-	double radius = 0.001 * diagonal_length_;  // Start from a small radius
+	double radius = 0.001 * aabb_length_;  // Start from a small radius
 
 	// Use the skeleton points as the vertices of the graph
 	for (int i = 0; i < cloud_.rows(); ++i) {
@@ -38,7 +37,7 @@ void Graph::GetSkeletonGraph() {
 		// Check the connected components
 		std::vector component(num_vertices(graph_), 0);
 		num = connected_components(graph_, component.data());
-		radius += 0.001 * diagonal_length_;
+		radius += 0.001 * aabb_length_;
 	}
 
 	Boost_WeightMap weight_map = get(boost::edge_weight, graph_);
@@ -53,7 +52,7 @@ void Graph::GetSkeletonGraph() {
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("Initial graph has been generated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
+	Logger::Instance().Log(fmt::format("Initial graph has been generated! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true,
 						   false);
 }
 
@@ -83,7 +82,7 @@ void Graph::ComputeMST() {
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("MST has been computed! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true, false);
+	Logger::Instance().Log(fmt::format("MST has been computed! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true, false);
 }
 
 
@@ -180,7 +179,7 @@ void Graph::PruneMST() {
 	}
 
 	double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-	Logger::Instance().Log(std::format("MST has been pruned! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true, false);
+	Logger::Instance().Log(fmt::format("MST has been pruned! Elapsed time: {:.6f}s", elapsed), LogLevel::INFO, IndentLevel::ONE, true, false);
 }
 
 

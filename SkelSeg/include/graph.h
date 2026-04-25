@@ -5,13 +5,12 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/breadth_first_search.hpp>
 #include <boost/graph/connected_components.hpp>
+#include <boost/graph/copy.hpp>
 #include <boost/graph/kruskal_min_spanning_tree.hpp>
 #include <boost/graph/properties.hpp>
-#include <boost/graph/copy.hpp>
 #include <ranges>
 
 #include "skeleton.h"
-
 
 
 typedef boost::property<boost::edge_weight_t, double> Boost_EdgeWeightProperty;
@@ -22,7 +21,6 @@ typedef boost::graph_traits<Boost_Graph>::vertex_iterator Boost_VertexIt;
 typedef boost::graph_traits<Boost_Graph>::edge_descriptor Boost_Edge;
 typedef boost::graph_traits<Boost_Graph>::edge_iterator Boost_EdgeIt;
 typedef boost::property_map<Boost_Graph, boost::edge_weight_t>::type Boost_WeightMap;
-
 
 
 class Graph {
@@ -54,7 +52,7 @@ public:
 	}
 
 	// Shoot is the first class in the "result" vector
-	std::tuple<std::vector<int>, std::vector<int>> SegmentSkeleton() {
+	std::tuple<std::vector<int>, std::vector<int> > SegmentSkeleton() {
 		Logger::Instance().AddLine(LogLine::DASH);
 		Logger::Instance().Log("Start skeleton segmentation");
 		Timer timer;
@@ -65,23 +63,23 @@ public:
 		GetRootNode();
 		GetLeaves();
 		GetShoot();
-		std::vector<std::vector<Boost_Vertex>> classes = leafs_;
+		std::vector<std::vector<Boost_Vertex> > classes = leafs_;
 		classes.insert(classes.begin(), shoot_);
 		std::vector<int> vertex_semantic_labels(num_vertices(pruned_mst_));
 		std::vector<int> vertex_instance_labels(num_vertices(pruned_mst_));
 		for (int i = 0; i < classes.size(); ++i) {
 			for (const Boost_Vertex &index: classes[i]) {
 				if (i == 0) {
-					vertex_semantic_labels[index] = 0;	// Semantic label for shoot
-					vertex_instance_labels[index] = -1;	// Instance label for shoot
+					vertex_semantic_labels[index] = 0;	 // Semantic label for shoot
+					vertex_instance_labels[index] = -1;	 // Instance label for shoot
 					continue;
 				}
-				vertex_semantic_labels[index] = 1;		// Semantic label for leaf
+				vertex_semantic_labels[index] = 1;		 // Semantic label for leaf
 				vertex_instance_labels[index] = i - 1;
 			}
 		}
 		double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-		Logger::Instance().Log(std::format("Skeleton segmentation has been finished! Elapsed time: {}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
+		Logger::Instance().Log(fmt::format("Skeleton segmentation has been finished! Elapsed time: {}s", elapsed), LogLevel::INFO, IndentLevel::ONE,
 							   true, false);
 		return std::make_pair(vertex_semantic_labels, vertex_instance_labels);
 	}
@@ -94,12 +92,12 @@ private:
 	Boost_Graph mst_;
 	Boost_Graph pruned_mst_;
 	Boost_Vertex root_{};
-	std::vector<std::vector<Boost_Vertex>> leafs_;
+	std::vector<std::vector<Boost_Vertex> > leafs_;
 	std::vector<Boost_Vertex> shoot_;
 
 	// Hyper-parameters
 	// Recommend to change the following parameters in the ../configure.json file
-	const double diagonal_length_ = config_["Preprocess"]["Normalize_Diagonal_Length"].get<double>();
+	const double aabb_length_ = config_["Preprocess"]["Normalize_AABB_Length"].get<double>();
 	const double min_branch_length_ratio_ = config_["Skeleton_Building"]["Noise_Branch_Length_Ratio"].get<double>();
 	std::filesystem::path output_folder_path_ = config_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
 
@@ -115,7 +113,6 @@ private:
 
 	void GetShoot();
 };
-
 
 
 #endif	// GRAPH_H

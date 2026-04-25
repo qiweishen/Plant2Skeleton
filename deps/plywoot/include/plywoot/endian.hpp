@@ -25,8 +25,8 @@
 #include <cstdint>
 #include <utility>
 
-#include <machine/endian.h>  // For MacOS M3 chip machine, this header file is located in /usr/include/machine/endian.h
-// #if defined(__APPLE__)
+#if defined(__APPLE__)
+#include <machine/endian.h>
 #include <libkern/OSByteOrder.h>
 #define htobe16(x) OSSwapHostToBigInt16(x)
 #define be16toh(x) OSSwapBigToHostInt16(x)
@@ -34,9 +34,17 @@
 #define be32toh(x) OSSwapBigToHostInt32(x)
 #define htobe64(x) OSSwapHostToBigInt64(x)
 #define be64toh(x) OSSwapBigToHostInt64(x)
-// #else
-// #include <endian.h>
-// #endif
+#elif defined(_WIN32)
+#include <stdlib.h>
+#define htobe16(x) _byteswap_ushort(x)
+#define be16toh(x) _byteswap_ushort(x)
+#define htobe32(x) _byteswap_ulong(x)
+#define be32toh(x) _byteswap_ulong(x)
+#define htobe64(x) _byteswap_uint64(x)
+#define be64toh(x) _byteswap_uint64(x)
+#else
+#include <endian.h>
+#endif
 
 namespace plywoot::detail {
 

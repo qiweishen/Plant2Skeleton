@@ -5,7 +5,6 @@
 #include <chrono>
 
 
-
 /**
  * @class Timer
  * @brief A high-resolution timer for measuring elapsed time.
@@ -52,26 +51,24 @@ public:
 		return duration_cast<Unit, double>(duration);
 	}
 
-
 private:
 	Clock::time_point start_point_;
 
 	template<TimeUnit Unit, typename T>
-	static T duration_cast(const Clock::duration& duration) noexcept {
+	static T duration_cast(const Clock::duration &duration) noexcept {
 		if constexpr (Unit == TimeUnit::Nanoseconds) {
 			return std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count();
 		} else if constexpr (Unit == TimeUnit::Microseconds) {
 			return std::chrono::duration_cast<std::chrono::microseconds>(duration).count();
 		} else if constexpr (Unit == TimeUnit::Seconds) {
-			return std::chrono::duration_cast<std::chrono::duration<T>>(duration).count();
+			return std::chrono::duration_cast<std::chrono::duration<T> >(duration).count();
 		} else if constexpr (Unit == TimeUnit::Minutes) {
-			return std::chrono::duration_cast<std::chrono::duration<T, std::ratio<60>>>(duration).count();
+			return std::chrono::duration_cast<std::chrono::duration<T, std::ratio<60> > >(duration).count();
 		} else {
 			return std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
 		}
 	}
 };
-
 
 
 #endif	// TIMER_H

@@ -23,7 +23,6 @@
 #include <vector>
 
 
-
 struct VectorHash {
 	std::size_t operator()(const std::vector<size_t> &v) const {
 		std::size_t seed = v.size();
@@ -78,17 +77,17 @@ private:
 	const double WD_ = 9.0;
 
 	// Recommend to change the following parameters in the ../configure.json file
-	const double diagonal_length_ = config_["Preprocess"]["Normalize_Diagonal_Length"].get<double>();
+	const double aabb_length_ = config_["Preprocess"]["Normalize_AABB_Length"].get<double>();
 	const bool use_knn_search_ = config_["Constraint_Laplacian_Operator"]["Use_KNN_Search"].get<bool>();
 	int k_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_k"].get<int>();
 	const int delta_k_ = config_["Constraint_Laplacian_Operator"]["Delta_k"].get<int>();
 	const int max_k_ = config_["Constraint_Laplacian_Operator"]["Max_k"].get<int>();
-	double radius_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_Radius_Search_Ratio"].get<double>() * diagonal_length_;
-	const double delta_radius_ = config_["Constraint_Laplacian_Operator"]["Delta_Radius_Search_Ratio"].get<double>() * diagonal_length_;
-	const double min_radius_ = config_["Constraint_Laplacian_Operator"]["Min_Radius_Search_Ratio"].get<double>() * diagonal_length_;
+	double radius_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_Radius_Search_Ratio"].get<double>() * aabb_length_;
+	const double delta_radius_ = config_["Constraint_Laplacian_Operator"]["Delta_Radius_Search_Ratio"].get<double>() * aabb_length_;
+	const double min_radius_ = config_["Constraint_Laplacian_Operator"]["Min_Radius_Search_Ratio"].get<double>() * aabb_length_;
 	const double fix_eigen_ratio_ = config_["Adaptive_Contraction"]["Smooth_Sigma_Threshold"].get<double>();
-	const double sigma_radius_ = config_["Adaptive_Contraction"]["Sigma_Sphere_Radius_Ratio"].get<double>() * diagonal_length_;
-	const double max_distance_ = config_["Adaptive_Contraction"]["Max_Distance_Ratio"].get<double>() * diagonal_length_;
+	const double sigma_radius_ = config_["Adaptive_Contraction"]["Sigma_Sphere_Radius_Ratio"].get<double>() * aabb_length_;
+	const double max_distance_ = config_["Adaptive_Contraction"]["Max_Distance_Ratio"].get<double>() * aabb_length_;
 	const int max_iteration_time_ = config_["Terminate_Condition"]["Max_Iteration"].get<int>();
 	const double contraction_threshold_ = config_["Terminate_Condition"]["Convergence_Threshold"].get<double>();
 	const std::filesystem::path output_path_ = config_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>() / ".iterations";
@@ -118,11 +117,9 @@ private:
 };
 
 
-
 namespace geometrycentral::addition {
 	void UnrequireAllQuantities(geometrycentral::pointcloud::PointPositionGeometry &gc_geom);
 }
-
 
 
 #endif	// SKELETON_H

@@ -4,11 +4,12 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fmt/chrono.h>
+#include <fmt/format.h>
 #include <fstream>
 #include <iostream>
 #include <mutex>
 #include <string>
-
 
 
 /**
@@ -56,28 +57,28 @@ public:
 	 * @brief Retrieves the singleton instance of Logger.
 	 * @return Reference to the Logger instance.
 	 */
-	static Logger& Instance() {
+	static Logger &Instance() {
 		static Logger instance;
 		return instance;
 	}
 
-	Logger(const Logger&) = delete;
+	Logger(const Logger &) = delete;
 
-	Logger& operator=(const Logger&) = delete;
+	Logger &operator=(const Logger &) = delete;
 
 	/**
 	 * @brief Sets the log file path and opens the file for appending logs.
 	 * @param log_file_path The path to the log file.
 	 * @throws std::runtime_error If the log file cannot be opened.
 	 */
-	void SetLogFile(const std::filesystem::path& log_file_path) {
+	void SetLogFile(const std::filesystem::path &log_file_path) {
 		std::lock_guard lock(file_mutex_);
 		if (log_file_.is_open()) {
 			log_file_.close();
 		}
 		log_file_.open(log_file_path, std::ios::app);
 		if (!log_file_) {
-			throw std::runtime_error(std::format("Cannot open log file ({})", log_file_path.string()));
+			throw std::runtime_error(fmt::format("Cannot open log file ({})", log_file_path.string()));
 		}
 	}
 
@@ -108,14 +109,14 @@ public:
 			}
 		}
 
-		// Throw runtime_error if the log log_level is ERROR
-		if (log_level == LogLevel::ERROR) {
-			throw std::runtime_error(std::string(message));
-		}
-
 		// Output to console if required
 		if (to_console) {
 			OutputToConsole(formatted_message, log_level);
+		}
+
+		// Throw runtime_error if the log log_level is ERROR
+		if (log_level == LogLevel::ERROR) {
+			throw std::runtime_error(std::string(message));
 		}
 	}
 
@@ -160,7 +161,7 @@ public:
 	 * @brief Adds a separation line to the log file and console output.
 	 */
 	void PrintTitle() {
-		constexpr const char* title = R"(
+		constexpr const char *title = R"(
    _____ _        _  _____
   / ____| |      | |/ ____|
  | (___ | | _____| | (___   ___  __ _
@@ -207,20 +208,20 @@ private:
 	static std::string FormatMessage(std::string_view message, LogLevel log_level, IndentLevel indent_level, bool with_timestamp) {
 		if (indent_level == IndentLevel::ONE) {
 			if (with_timestamp) {
-				return std::format("[{}] [{}] {}\n", GetTimestamp(), LogLevelToString(log_level), message);
+				return fmt::format("[{}] [{}] {}\n", GetTimestamp(), LogLevelToString(log_level), message);
 			}
-			return std::format("[{}] {}\n", LogLevelToString(log_level), message);
+			return fmt::format("[{}] {}\n", LogLevelToString(log_level), message);
 		} else if (indent_level == IndentLevel::TWO) {
 			if (with_timestamp) {
-				return std::format("{}[{}] [{}] {}\n", IndentLevelToString(indent_level), GetTimestamp(), LogLevelToString(log_level), message);
+				return fmt::format("{}[{}] [{}] {}\n", IndentLevelToString(indent_level), GetTimestamp(), LogLevelToString(log_level), message);
 			}
-			return std::format("{}[{}] {}\n", IndentLevelToString(indent_level), LogLevelToString(log_level), message);
+			return fmt::format("{}[{}] {}\n", IndentLevelToString(indent_level), LogLevelToString(log_level), message);
 		} else {
 			if (with_timestamp) {
-				return std::format("               [{}] [{}] {}\n", GetTimestamp(), LogLevelToString(log_level), IndentLevelToString(indent_level),
+				return fmt::format("               [{}] [{}] {}\n", GetTimestamp(), LogLevelToString(log_level), IndentLevelToString(indent_level),
 								   message);
 			}
-			return std::format("               [{}] {}\n", LogLevelToString(log_level), IndentLevelToString(indent_level), message);
+			return fmt::format("               [{}] {}\n", LogLevelToString(log_level), IndentLevelToString(indent_level), message);
 		}
 	}
 
@@ -231,7 +232,7 @@ private:
 	static std::string GetTimestamp() {
 		std::chrono::time_point<std::chrono::system_clock> now = std::chrono::system_clock::now();
 		// Format time point with milliseconds precision
-		return std::format("{0:%T}", floor<std::chrono::milliseconds>(now));
+		return fmt::format("{:%T}", floor<std::chrono::milliseconds>(now));
 	}
 
 	/**
@@ -285,7 +286,7 @@ private:
 	 *   - `LogLevel::ERROR`
 	 */
 	void OutputToConsole(std::string_view message, LogLevel log_level) {
-		std::ostream& out_stream = log_level == LogLevel::WARNING ? std::cerr : std::cout;
+		std::ostream &out_stream = log_level == LogLevel::WARNING ? std::cerr : std::cout;
 		{
 			std::lock_guard lock(console_mutex_);
 			out_stream << message;
