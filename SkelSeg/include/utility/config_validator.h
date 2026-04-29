@@ -31,7 +31,7 @@ namespace configvalidator {
 	std::optional<std::string> ValidatePreprocess(const nlohmann::json &preprocess);
 
 
-	std::optional<std::string> ValidateConstraintLaplacianOperator(const nlohmann::json &constraint_laplacian_operator);
+	std::optional<std::string> ValidateConstrainedLaplacianOperator(const nlohmann::json &constrained_laplacian_operator);
 
 
 	std::optional<std::string> ValidateAdaptiveContraction(const nlohmann::json &adaptive_contraction);
@@ -70,7 +70,7 @@ namespace configvalidator {
 
 		is_valid &= CheckSection(config, "Input_Settings", ValidateInputSettings);
 		is_valid &= CheckSection(config, "Preprocess", ValidatePreprocess);
-		is_valid &= CheckSection(config, "Constraint_Laplacian_Operator", ValidateConstraintLaplacianOperator);
+		is_valid &= CheckSection(config, "Constrained_Laplacian_Operator", ValidateConstrainedLaplacianOperator);
 		is_valid &= CheckSection(config, "Adaptive_Contraction", ValidateAdaptiveContraction);
 		is_valid &= CheckSection(config, "Terminate_Condition", ValidateTerminateCondition);
 		is_valid &= CheckSection(config, "Skeleton_Building", ValidateSkeletonBuilding);
@@ -273,45 +273,45 @@ namespace configvalidator {
 	}
 
 
-	// Validate "Constraint_Laplacian_Operator" section
-	inline std::optional<std::string> ValidateConstraintLaplacianOperator(const nlohmann::json &constraint_laplacian_operator) {
-		if (!constraint_laplacian_operator.contains("Use_KNN_Search") || !constraint_laplacian_operator.contains("Use_Radius_Search")) {
-			return "Missing 'Use_KNN_Search' or 'Use_Radius_Search' in 'Constraint_Laplacian_Operator'.";
+	// Validate "Constrained_Laplacian_Operator" section
+	inline std::optional<std::string> ValidateConstrainedLaplacianOperator(const nlohmann::json &constrained_laplacian_operator) {
+		if (!constrained_laplacian_operator.contains("Use_KNN_Search") || !constrained_laplacian_operator.contains("Use_Radius_Search")) {
+			return "Missing 'Use_KNN_Search' or 'Use_Radius_Search' in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator["Use_KNN_Search"].is_boolean() || !constraint_laplacian_operator["Use_Radius_Search"].is_boolean()) {
-			return "Invalid 'Use_KNN_Search' or 'Use_Radius_Search' in 'Constraint_Laplacian_Operator'.";
+		if (!constrained_laplacian_operator["Use_KNN_Search"].is_boolean() || !constrained_laplacian_operator["Use_Radius_Search"].is_boolean()) {
+			return "Invalid 'Use_KNN_Search' or 'Use_Radius_Search' in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (constraint_laplacian_operator["Use_KNN_Search"].get<bool>() == constraint_laplacian_operator["Use_Radius_Search"].get<bool>()) {
-			return "Only one of 'Use_KNN_Search' or 'Use_Radius_Search' should be true in 'Constraint_Laplacian_Operator'.";
+		if (constrained_laplacian_operator["Use_KNN_Search"].get<bool>() == constrained_laplacian_operator["Use_Radius_Search"].get<bool>()) {
+			return "Only one of 'Use_KNN_Search' or 'Use_Radius_Search' should be true in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Initial_k") || !constraint_laplacian_operator["Initial_k"].is_number_integer()) {
-			return "Missing or invalid 'Initial_k' in 'Constraint_Laplacian_Operator'.";
+		if (!constrained_laplacian_operator.contains("Initial_k") || !constrained_laplacian_operator["Initial_k"].is_number_integer()) {
+			return "Missing or invalid 'Initial_k' in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Delta_k") || !constraint_laplacian_operator["Delta_k"].is_number_integer()) {
-			return "Missing or invalid 'Delta_k' in 'Constraint_Laplacian_Operator'.";
+		if (!constrained_laplacian_operator.contains("Delta_k") || !constrained_laplacian_operator["Delta_k"].is_number_integer()) {
+			return "Missing or invalid 'Delta_k' in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Max_k") || !constraint_laplacian_operator["Max_k"].is_number_integer()) {
-			return "Missing or invalid 'Max_k' in 'Constraint_Laplacian_Operator'.";
+		if (!constrained_laplacian_operator.contains("Max_k") || !constrained_laplacian_operator["Max_k"].is_number_integer()) {
+			return "Missing or invalid 'Max_k' in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Initial_Radius_Search_Ratio") ||
-			!constraint_laplacian_operator["Initial_Radius_Search_Ratio"].is_number()) {
-			return "Missing or invalid 'Initial_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
+		if (!constrained_laplacian_operator.contains("Initial_Radius_Search_Ratio") ||
+			!constrained_laplacian_operator["Initial_Radius_Search_Ratio"].is_number()) {
+			return "Missing or invalid 'Initial_Radius_Search_Ratio' in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Delta_Radius_Search_Ratio") ||
-			!constraint_laplacian_operator["Delta_Radius_Search_Ratio"].is_number()) {
-			return "Missing or invalid 'Delta_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
+		if (!constrained_laplacian_operator.contains("Delta_Radius_Search_Ratio") ||
+			!constrained_laplacian_operator["Delta_Radius_Search_Ratio"].is_number()) {
+			return "Missing or invalid 'Delta_Radius_Search_Ratio' in 'Constrained_Laplacian_Operator'.";
 		}
 
-		if (!constraint_laplacian_operator.contains("Min_Radius_Search_Ratio") ||
-			!constraint_laplacian_operator["Min_Radius_Search_Ratio"].is_number()) {
-			return "Missing or invalid 'Min_Radius_Search_Ratio' in 'Constraint_Laplacian_Operator'.";
+		if (!constrained_laplacian_operator.contains("Min_Radius_Search_Ratio") ||
+			!constrained_laplacian_operator["Min_Radius_Search_Ratio"].is_number()) {
+			return "Missing or invalid 'Min_Radius_Search_Ratio' in 'Constrained_Laplacian_Operator'.";
 		}
 
 		return std::nullopt;
@@ -383,6 +383,11 @@ namespace configvalidator {
 				// Check if the output folder contains subdirectories
 				bool has_contents = !std::filesystem::is_empty(output_folder_path);
 				if (has_contents) {
+#if GUI_MODE
+					// Delete all contents in the output folder
+					std::filesystem::remove_all(output_folder_path);
+					std::filesystem::create_directories(output_folder_path);
+#else
 					std::cout << "Output folder should be empty." << std::endl;
 					std::string input;
 					constexpr int max_attempts = 3;
@@ -404,6 +409,7 @@ namespace configvalidator {
 						std::cout << "Invalid input. Program terminated." << std::endl;
 						std::exit(EXIT_FAILURE);
 					}
+#endif
 				}
 			}
 		} catch (const std::filesystem::filesystem_error &e) {

@@ -1,12 +1,12 @@
 #include <filesystem>
 #include <nlohmann/json.hpp>
-#include <utility/config_validator.h>
-#include <utility/logger.h>
 
 #include "graph.h"
 #include "lop.h"
 #include "skeleton.h"
 #include "tools.h"
+#include "utility/config_validator.h"
+#include "utility/logger.h"
 
 
 void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &config) {

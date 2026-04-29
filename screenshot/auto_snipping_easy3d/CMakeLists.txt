@@ -28,11 +28,15 @@ set(Easy3D_ENABLE_QT                ON CACHE BOOL "" FORCE)
 set(Easy3D_ENABLE_FFMPEG            OFF CACHE BOOL "" FORCE)
 add_subdirectory(../../deps/Easy3D ${CMAKE_BINARY_DIR}/_deps/Easy3D)
 
-add_executable(auto_snipping main.cpp)
+add_executable(${PROJECT_NAME} main.cpp)
 
-target_include_directories(auto_snipping PRIVATE ${PROJECT_SOURCE_DIR})
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+        RESOURCE_DIR="${CMAKE_SOURCE_DIR}/../../resources"
+)
 
-target_link_libraries(auto_snipping PRIVATE
+target_include_directories(${PROJECT_NAME} PRIVATE ${PROJECT_SOURCE_DIR})
+
+target_link_libraries(${PROJECT_NAME} PRIVATE
         easy3d::viewer
         easy3d::core
         easy3d::fileio

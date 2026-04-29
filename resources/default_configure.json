@@ -4,7 +4,7 @@
         "Sigma_Sphere_Radius_Ratio": 0.015,
         "Smooth_Sigma_Threshold": 0.9
     },
-    "Constraint_Laplacian_Operator": {
+    "Constrained_Laplacian_Operator": {
         "Delta_Radius_Search_Ratio": 0.005,
         "Delta_k": 4,
         "Initial_Radius_Search_Ratio": 0.015,

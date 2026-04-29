@@ -8,7 +8,6 @@
 #include <easy3d/renderer/drawable_points.h>
 #include <easy3d/renderer/renderer.h>
 #include <easy3d/renderer/texture_manager.h>
-#include <easy3d/util/initializer.h>
 #include <easy3d/util/logging.h>
 #include <easy3d/util/resource.h>
 #include <easy3d/viewer/offscreen.h>
@@ -102,7 +101,7 @@ namespace snipping {
 				if (cfg.colormap != "colormap") {
 					colormap_file = resource::directory() + "/colormaps/" + cfg.colormap + ".png";
 				} else {
-					colormap_file = "/workspace/colormap.png";
+					colormap_file = RESOURCE_DIR"/colormaps.png";
 				}
 				const Texture* tex =
 						(cfg.num_stripes > 0) ? TextureManager::request(colormap_file, cfg.num_stripes) : TextureManager::request(colormap_file);

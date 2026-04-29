@@ -8,9 +8,14 @@
 
 
 int main(int argc, char **argv) {
-	std::string skelseg_output_folder = "/workspace/dataset/data/All_Parameters/Default_Parameter/output";
-	std::string img_output_folder = "/workspace/dataset/data/All_Parameters/images/Default";
+	std::string skelseg_output_folder = "/workspace/data/output";
+	std::string img_output_folder = "/workspace/data/image";
 	std::vector<float> camera = { 2.5, 0, 0.08, 0.5, 0.5, 0.5, 0.5 };
+
+	if (!std::filesystem::exists(img_output_folder)) {
+		// Create the output folder
+		std::filesystem::create_directories(img_output_folder);
+	}
 
 	std::vector<std::string> ply_input_folders;
 	std::vector<std::string> sample_names;
@@ -97,7 +102,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	// _instance_skel.png
+	// _semantic_skel.png
 	snipping::PointsConfig original_points_cfg;
 	original_points_cfg.visible = false;
 	snipping::PointsConfig semantic_skeleton_points_cfg;
@@ -105,8 +110,33 @@ int main(int argc, char **argv) {
 	semantic_skeleton_points_cfg.impostor = easy3d::PointsDrawable::SPHERE;
 	semantic_skeleton_points_cfg.coloring = easy3d::State::SCALAR_FIELD;
 	semantic_skeleton_points_cfg.scalar_location = easy3d::State::VERTEX;
-	semantic_skeleton_points_cfg.scalar_name = "v:instance";
-	semantic_skeleton_points_cfg.colormap = "colormap";
+	semantic_skeleton_points_cfg.scalar_name = "v:semantic";
+	semantic_skeleton_points_cfg.colormap = "french";
+	for (int i = 0; i < ply_input_folders.size(); i++) {
+		std::filesystem::path original_input_file = std::filesystem::path(ply_input_folders[i]) / "1_Input.ply";
+		std::filesystem::path skeleton_input_file = std::filesystem::path(ply_input_folders[i]) / "7_MST-Segmented.ply";
+		std::filesystem::path output_file = img_output_folder + "/" + sample_names[i] + "_semantic_skel.png";
+
+		snipping::OutputConfig output;
+		output.file_name = output_file;
+
+		ok = snipping::snapshot(os, original_input_file, skeleton_input_file, output, original_points_cfg, semantic_skeleton_points_cfg, lines_cfg,
+								camera_cfg);
+		if (ok) {
+			std::cout << "Snapshot saved to: " << output_file << std::endl;
+		} else {
+			std::cerr << "Failed to render snapshot." << std::endl;
+		}
+	}
+
+	// _instance_skel.png
+	snipping::PointsConfig instance_skeleton_points_cfg;
+	instance_skeleton_points_cfg.point_size = 8.0f;
+	instance_skeleton_points_cfg.impostor = easy3d::PointsDrawable::SPHERE;
+	instance_skeleton_points_cfg.coloring = easy3d::State::SCALAR_FIELD;
+	instance_skeleton_points_cfg.scalar_location = easy3d::State::VERTEX;
+	instance_skeleton_points_cfg.scalar_name = "v:instance";
+	instance_skeleton_points_cfg.colormap = "colormap";
 	for (int i = 0; i < ply_input_folders.size(); i++) {
 		std::filesystem::path original_input_file = std::filesystem::path(ply_input_folders[i]) / "1_Input.ply";
 		std::filesystem::path skeleton_input_file = std::filesystem::path(ply_input_folders[i]) / "7_MST-Segmented.ply";
@@ -115,7 +145,7 @@ int main(int argc, char **argv) {
 		snipping::OutputConfig output;
 		output.file_name = output_file;
 
-		ok = snipping::snapshot(os, original_input_file, skeleton_input_file, output, original_points_cfg, semantic_skeleton_points_cfg, lines_cfg,
+		ok = snipping::snapshot(os, original_input_file, skeleton_input_file, output, original_points_cfg, instance_skeleton_points_cfg, lines_cfg,
 								camera_cfg);
 		if (ok) {
 			std::cout << "Snapshot saved to: " << output_file << std::endl;

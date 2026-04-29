@@ -78,13 +78,13 @@ private:
 
 	// Recommend to change the following parameters in the ../configure.json file
 	const double aabb_length_ = config_["Preprocess"]["Normalize_AABB_Length"].get<double>();
-	const bool use_knn_search_ = config_["Constraint_Laplacian_Operator"]["Use_KNN_Search"].get<bool>();
-	int k_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_k"].get<int>();
-	const int delta_k_ = config_["Constraint_Laplacian_Operator"]["Delta_k"].get<int>();
-	const int max_k_ = config_["Constraint_Laplacian_Operator"]["Max_k"].get<int>();
-	double radius_neighbors_ = config_["Constraint_Laplacian_Operator"]["Initial_Radius_Search_Ratio"].get<double>() * aabb_length_;
-	const double delta_radius_ = config_["Constraint_Laplacian_Operator"]["Delta_Radius_Search_Ratio"].get<double>() * aabb_length_;
-	const double min_radius_ = config_["Constraint_Laplacian_Operator"]["Min_Radius_Search_Ratio"].get<double>() * aabb_length_;
+	const bool use_knn_search_ = config_["Constrained_Laplacian_Operator"]["Use_KNN_Search"].get<bool>();
+	int k_neighbors_ = config_["Constrained_Laplacian_Operator"]["Initial_k"].get<int>();
+	const int delta_k_ = config_["Constrained_Laplacian_Operator"]["Delta_k"].get<int>();
+	const int max_k_ = config_["Constrained_Laplacian_Operator"]["Max_k"].get<int>();
+	double radius_neighbors_ = config_["Constrained_Laplacian_Operator"]["Initial_Radius_Search_Ratio"].get<double>() * aabb_length_;
+	const double delta_radius_ = config_["Constrained_Laplacian_Operator"]["Delta_Radius_Search_Ratio"].get<double>() * aabb_length_;
+	const double min_radius_ = config_["Constrained_Laplacian_Operator"]["Min_Radius_Search_Ratio"].get<double>() * aabb_length_;
 	const double fix_eigen_ratio_ = config_["Adaptive_Contraction"]["Smooth_Sigma_Threshold"].get<double>();
 	const double sigma_radius_ = config_["Adaptive_Contraction"]["Sigma_Sphere_Radius_Ratio"].get<double>() * aabb_length_;
 	const double max_distance_ = config_["Adaptive_Contraction"]["Max_Distance_Ratio"].get<double>() * aabb_length_;
