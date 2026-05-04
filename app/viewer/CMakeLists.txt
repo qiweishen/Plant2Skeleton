@@ -21,7 +21,7 @@ set(SOURCES
 add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
-        RESOURCE_DIR="${CMAKE_SOURCE_DIR}/resources"
+        ROOT_DIR="${CMAKE_SOURCE_DIR}"
         GUI_MODE=1
 )
 

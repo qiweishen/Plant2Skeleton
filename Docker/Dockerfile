@@ -28,13 +28,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     sudo \
-    locales \
-    # ----- Core libraries ----- \
+    locales
+
+# ============================================================
+# C++ Libraries
+# ============================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libomp-dev \
-    libboost-all-dev \
-    # ----- Python ----- \
-    python3-dev \
-    python3-pip
+    libboost-all-dev
 
 # ============================================================
 # GUI Dependencies
@@ -56,6 +57,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     qt6-base-dev \
     qt6-tools-dev \
     libqt6opengl6-dev
+
+# ============================================================
+# Python
+# ============================================================
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-dev \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --break-system-packages \
+    numpy \
+    scipy \
+    scikit-learn \
+    plyfile
+
 
 # ============================================================
 # Clean cache to reduce image size

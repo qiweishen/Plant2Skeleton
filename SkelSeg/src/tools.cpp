@@ -24,7 +24,7 @@ namespace tool {
 			} else {
 				// With labels
 				io::FormatPointCloud(config);
-				std::filesystem::path ply_path = config["Input_Settings"]["Input_Point_Cloud_File_Path"].get<std::filesystem::path>();
+				std::filesystem::path ply_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
 				Timer timer_1;
 				if (std::unique_ptr<easy3d::PointCloud> loaded_cloud(easy3d::PointCloudIO::load(ply_path.string())); loaded_cloud) {
 					easy3d_cloud = *loaded_cloud;
@@ -52,6 +52,13 @@ namespace tool {
 						config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Semantic_Label_Name"].get<std::string>();
 				const std::string instance_label_name =
 						config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Instance_Label_Name"].get<std::string>();
+				std::vector<std::string> valid_labels = easy3d_cloud.vertex_properties();
+				if (std::find(valid_labels.begin(), valid_labels.end(), "v:" + semantic_label_name) == valid_labels.end() ||
+					std::find(valid_labels.begin(), valid_labels.end(), "v:" + instance_label_name) == valid_labels.end()) {
+					Logger::Instance().Log(fmt::format("Semantic Label Name: '{}' or Instance Label Name: '{}' do not exist. Please check.",
+													   semantic_label_name, instance_label_name),
+										   LogLevel::ERROR);
+				}
 				// Get vertex properties for semantic and instance labels
 				easy3d::PointCloud::VertexProperty<int> semantic = easy3d_cloud.get_vertex_property<int>("v:" + semantic_label_name);
 				easy3d::PointCloud::VertexProperty<int> instance = easy3d_cloud.get_vertex_property<int>("v:" + instance_label_name);
@@ -84,8 +91,7 @@ namespace tool {
 			// Normalize the point cloud
 			Eigen::Vector3d center;
 			double normalization_scaling;
-			std::tie(center, normalization_scaling) =
-					utility::Normalize(final_cloud, config["Preprocess"]["Normalize_AABB_Length"].get<double>());
+			std::tie(center, normalization_scaling) = utility::Normalize(final_cloud, config["Preprocess"]["Normalize_AABB_Length"].get<double>());
 			// Update normalization parameters in the configuration
 			config["Preprocess"]["Normalize_Center"] = { center.x(), center.y(), center.z() };
 			config["Preprocess"]["Normalize_Scaling"] = normalization_scaling;
@@ -159,7 +165,7 @@ namespace tool {
 				double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
 				if (with_log) {
 					Logger::Instance().Log(
-							fmt::format("Original Point Cloud has been uniformly downsampled to #vertex {}! Elapsed time: {}", num_samples, elapsed),
+							fmt::format("Original Point Cloud has been uniformly downsampled to #vertex {}! Elapsed time: {:.6f}s", num_samples, elapsed),
 							LogLevel::INFO, IndentLevel::ONE, true, false);
 				}
 			}
@@ -183,7 +189,6 @@ namespace tool {
 			Eigen::MatrixXd cloud = utility::Vector2Matrix(cloud_vertices);
 			if (backup) {
 				SavePointCloudToPLY(cloud, output_folder_path / "0_Original.ply");
-				config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 				double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
 				Logger::Instance().Log(
 						fmt::format(
@@ -206,7 +211,7 @@ namespace tool {
 				Logger::Instance().Log(fmt::format("Unsupported file format: {}.", file_path.extension().string()), LogLevel::ERROR);
 			}
 			double elapsed = timer.elapsed<Timer::TimeUnit::Seconds>();
-			Logger::Instance().Log(fmt::format("Original Point Cloud and its labels has been saved in one PLY file! Elapsed time: {:.6f}s.", elapsed),
+			Logger::Instance().Log(fmt::format("Original Point Cloud and its labels has been saved in one PLY file! Elapsed time: {:.6f}s", elapsed),
 								   LogLevel::INFO, IndentLevel::ONE, true, false);
 		}
 
@@ -446,10 +451,8 @@ namespace tool {
 					SavePointCloudToPLY(cloud, output_folder_path / "0_Original.ply", semantic_labels, instance_labels, { "semantic", "instance" });
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Semantic_Label_Name"] = "semantic";
 					config["Input_Settings"]["Labels_Names"]["PLY_Format"]["Instance_Label_Name"] = "instance";
-					config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 				} else {
 					copy_file(file_path, output_folder_path / "0_Original.ply", std::filesystem::copy_options::overwrite_existing);
-					config["Input_Settings"]["Input_Point_Cloud_File_Path"] = output_folder_path / "0_Original.ply";
 				}
 			}
 
@@ -536,14 +539,16 @@ namespace tool {
 				size_t start = 0;
 				while (start < data_view.size()) {
 					size_t end = data_view.find('\n', start);
-					if (end == std::string_view::npos)
+					if (end == std::string_view::npos) {
 						end = data_view.size();
+					}
 					std::string_view line_view = data_view.substr(start, end - start);
 					const char *ptr = line_view.data();
 					const char *line_end = ptr + line_view.size();
 					auto skip_delimiter = [delimiter](const char *&p, const char *end) {
-						while (p < end && *p == delimiter)
+						while (p < end && *p == delimiter) {
 							++p;
+						}
 					};
 					size_t count = 0;
 					if constexpr (std::is_same_v<T, int> || std::is_same_v<T, double>) {
@@ -561,8 +566,9 @@ namespace tool {
 						std::array<double, 12> temp_numbers{};
 						for (; count < dim && ptr < line_end; ++count) {
 							skip_delimiter(ptr, line_end);
-							if (ptr >= line_end)
+							if (ptr >= line_end) {
 								break;
+							}
 							double value;
 							auto answer = fast_float::from_chars(ptr, line_end, value);
 							if (answer.ec == std::errc()) {

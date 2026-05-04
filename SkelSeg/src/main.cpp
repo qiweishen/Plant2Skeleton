@@ -11,7 +11,6 @@
 
 void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &config) {
 	std::filesystem::path output_folder_path = config["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
-	std::filesystem::create_directories(output_folder_path / ".iterations");
 	std::string file_name = input_file_path.filename().string();
 	file_name = file_name.substr(0, file_name.find('.'));
 	Logger::Instance().AddLine(LogLine::DASH);
@@ -90,7 +89,7 @@ void MainProcess(const std::filesystem::path &input_file_path, nlohmann::json &c
 
 int main() {
 	// Load the configuration file
-	std::filesystem::path config_file_path = "../../configure.json";
+	std::filesystem::path config_file_path = ROOT_DIR "/resources/default_configure.json";
 	std::ifstream config_file(config_file_path);
 	if (!config_file.is_open()) {
 		throw std::runtime_error(fmt::format("Failed to open the configuration file: {}", config_file_path.string()));
@@ -105,15 +104,14 @@ int main() {
 		std::filesystem::path file_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
 		config["Output_Settings"]["Output_Folder_Path"] =
 				std::filesystem::path(config["Output_Settings"]["Output_Folder_Path"].get<std::string>()) / file_path.stem();
+		configvalidator::ValidateConfig(config);
+
+		// Initialize the Logger::Instance()
+		std::filesystem::path log_path = config["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>() / ".log";
+		Logger::Instance().SetLogFile(log_path);
+		Logger::Instance().PrintTitle();
+		Logger::Instance().Log("SkelSeg program start!");
 	}
-	configvalidator::ValidateConfig(config);
-
-
-	// Initialize the Logger::Instance()
-	std::filesystem::path log_path = config["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>() / ".log";
-	Logger::Instance().SetLogFile(log_path);
-	Logger::Instance().PrintTitle();
-	Logger::Instance().Log("SkelSeg program start!");
 
 
 	// Check the processing mode
@@ -129,13 +127,22 @@ int main() {
 				if (entry.path().extension() == file_extension) {
 					config["Output_Settings"]["Output_Folder_Path"] = (std::filesystem::path(base_output) / entry.path().stem()).string();
 					config["Input_Settings"]["Point_Cloud_File_Path"] = entry.path().string();
+					configvalidator::ValidateConfig(config);
+					// Initialize the Logger::Instance()
+					std::filesystem::path log_path = config["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>() / ".log";
+					Logger::Instance().SetLogFile(log_path);
+					Logger::Instance().PrintTitle();
+					Logger::Instance().Log("SkelSeg program start!");
 					MainProcess(entry.path(), config);
 				}
 			}
 		}
 	} else {
 		Logger::Instance().Log("Single Processing Mode!");
-		MainProcess(config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>(), config);
+		const auto base_output = config["Output_Settings"]["Output_Folder_Path"].get<std::string>();
+		const auto input_file_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
+		config["Output_Settings"]["Output_Folder_Path"] = (std::filesystem::path(base_output) / input_file_path.stem()).string();
+		MainProcess(input_file_path, config);
 	}
 
 	return EXIT_SUCCESS;

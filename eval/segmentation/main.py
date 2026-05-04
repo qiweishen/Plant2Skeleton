@@ -87,10 +87,10 @@ def find_and_copy_ply_files(source_dir, destination_dir):
 
 
 if __name__ == "__main__":
-    source_directory = "/workspace/dataset/data/All_Parameters/Tuned_Parameter/output"
-    destination_directory = "/workspace/dataset/data/All_Parameters/Tuned_Parameter/evaluate"
+    source_directory = "/workspace/dataset/data/All_Parameters/Default_Parameter/output"
+    destination_directory = "/workspace/dataset/data/All_Parameters/Default_Parameter/evaluate"
     find_and_copy_ply_files(source_directory, destination_directory)
 
     pred_sematic_label, pred_instance_label, gt_sematic_label, gt_instance_label, plant_numbers = get_total_pred_gt(
-        "/workspace/dataset/data/All_Parameters/Tuned_Parameter/evaluate", "/workspace/dataset/data/All_Parameters/Tuned_Parameter/evaluate")
+        "/workspace/dataset/data/All_Parameters/Default_Parameter/evaluate", "/workspace/dataset/data/All_Parameters/Default_Parameter/evaluate")
     evaluate(pred_sematic_label, pred_instance_label, gt_sematic_label, gt_instance_label, plant_numbers, destination_directory)

@@ -39,6 +39,8 @@
 #include <regex>
 #include <thread>
 
+#include "easy3d/renderer/camera.h"
+
 
 
 class GuiLogBuffer : public std::streambuf {
@@ -70,15 +72,16 @@ public:
 		lines_.clear();
 	}
 
-	std::deque<std::string> lines() {
+	// Render under lock and consume scroll flag
+	template<typename F>
+	bool render(F &&f) {
 		std::lock_guard<std::mutex> lock(mutex_);
-		return lines_;
-	}
-
-	bool consume_scroll() {
-		bool v = scroll_;
+		for (const auto &l: lines_) {
+			f(l);
+		}
+		bool s = scroll_;
 		scroll_ = false;
-		return v;
+		return s;
 	}
 
 protected:
@@ -202,7 +205,11 @@ std::filesystem::path find_result_ply(const std::filesystem::path &dir) {
 // MyViewer
 class MyViewer : public easy3d::ViewerImGui {
 public:
-	MyViewer() : ViewerImGui("SkelSeg", 4, 3, 2, false, true, 24, 8, 1280, 720) { g_log.install(std::cout); }
+	MyViewer() : ViewerImGui("SkelSeg", 4, 3, 2, false, true, 24, 8, 1600, 900) {
+		g_log.install(std::cout);
+		easy3d_usage_ = manual_;
+		manual_ = "";
+	}
 
 	~MyViewer() override {
 		if (worker_.joinable()) {
@@ -212,9 +219,7 @@ public:
 	}
 
 protected:
-	// -----------------------------------------------------------------
-	// post_draw  --  main rendering entry (replaces ViewerImGui version)
-	// -----------------------------------------------------------------
+	// post_draw (replaces ViewerImGui version)
 	void post_draw() override {
 		show_easy3d_logo_ = false;
 
@@ -223,6 +228,9 @@ protected:
 		// ---- Floating panels ----
 		if (show_about_) {
 			draw_about();
+		}
+		if (show_help_) {
+			draw_help();
 		}
 		if (show_param_panel_) {
 			draw_parameter_panel();
@@ -265,8 +273,11 @@ protected:
 			}
 
 			if (ImGui::BeginMenu("Skeleton Extraction")) {
-				if (ImGui::MenuItem("Run All", nullptr, false, cfg_ok_ && !is_running_)) {
+				if (ImGui::MenuItem("Run All", nullptr, false, cfg_ok_ && !is_running_ && !cfg_dirty_)) {
 					run_all();
+				}
+				if (cfg_dirty_ && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+					ImGui::SetTooltip("Click 'Confirm Parameters' first.");
 				}
 				ImGui::Separator();
 				ImGui::MenuItem("Pipeline Control", nullptr, &show_pipeline_panel_);
@@ -275,6 +286,8 @@ protected:
 
 			if (ImGui::BeginMenu("Help")) {
 				ImGui::MenuItem("About", nullptr, &show_about_);
+				ImGui::Separator();
+				ImGui::MenuItem("Help", nullptr, &show_help_);
 				ImGui::EndMenu();
 			}
 
@@ -289,17 +302,23 @@ protected:
 	}
 
 private:
-	//  UI toggle flags
+	// Easy3D viewer shortcut
+	std::string easy3d_usage_;
+
+	// UI toggle flags
 	bool show_about_ = false;
+	bool show_help_ = false;
 	bool show_param_panel_ = true;
 	bool show_pipeline_panel_ = true;
-	bool show_log_panel_ = false;
+	bool show_log_panel_ = true;
 	bool show_layer_manager_ = false;
 
-	//  Configuration state
+	// Configuration state
 	nlohmann::json cfg_;
 	std::filesystem::path cfg_path_;
+	std::string base_output_path_;	// base output dir (no stem appended); final = base / stem(pc)
 	bool cfg_ok_ = false;
+	bool cfg_dirty_ = false;		// staged but not yet validated via Confirm Parameters; gates Run/exec buttons
 	bool pending_output_has_contents_ = false;
 	std::size_t pending_output_item_count_ = 0;
 	std::vector<std::string> pending_output_preview_;
@@ -310,28 +329,21 @@ private:
 	bool dont_ask_again_session_ = false;
 
 	char buf_pc_path_[512] = {};
-	char buf_batch_dir_[512] = {};
-	char buf_ext_[64] = {};
-	char buf_sem_file_ply_[512] = {};
-	char buf_inst_file_ply_[512] = {};
 	char buf_sem_name_[128] = {};
 	char buf_inst_name_[128] = {};
-	char buf_sem_file_txt_[512] = {};
-	char buf_inst_file_txt_[512] = {};
 	char buf_out_dir_[512] = {};
 
-
-	//  Pipeline state
+	// Pipeline state
 	std::atomic<int> completed_{ 0 };
 	std::atomic<int> running_stage_{ 0 };
 	std::atomic<bool> is_running_{ false };
 	std::string error_msg_;
+	mutable std::mutex error_mu_;
 	std::mutex vis_mu_;
 	std::vector<Stage> vis_pending_;
 	std::thread worker_;
 
-
-	//  Pipeline intermediate data
+	// Pipeline intermediate data
 	Eigen::MatrixXd original_cloud_;
 	Eigen::MatrixXd input_cloud_;
 	Eigen::MatrixXd lap_skeleton_;
@@ -347,9 +359,24 @@ private:
 	std::vector<int> pred_inst_;
 
 
-	//  Configuration management
+	// Thread-safe error message access
+	void set_error(std::string msg) {
+		std::lock_guard<std::mutex> lk(error_mu_);
+		error_msg_ = std::move(msg);
+	}
+	void clear_error() {
+		std::lock_guard<std::mutex> lk(error_mu_);
+		error_msg_.clear();
+	}
+	std::string get_error() const {
+		std::lock_guard<std::mutex> lk(error_mu_);
+		return error_msg_;
+	}
+
+
+	// Configuration management
 	void load_parameter_file() {
-		const std::vector<std::string> f = { "JSON Files (*.json)", "*.json", "All Files (*.*)", "*" };
+		const std::vector<std::string> f = { "JSON Files (*.json)", "*.json" };
 		std::string p = easy3d::dialog::open("Select Parameter File", "", f);
 		if (!p.empty()) {
 			load_config_from_path(p);
@@ -362,7 +389,7 @@ private:
 			return;
 		}
 		sync_cfg_from_bufs();
-		const std::vector<std::string> f = { "JSON Files (*.json)", "*.json", "All Files (*.*)", "*" };
+		const std::vector<std::string> f = { "JSON Files (*.json)", "*.json" };
 		std::string p = easy3d::dialog::save("Save Parameter File", cfg_path_.string(), f);
 		if (!p.empty()) {
 			try {
@@ -390,34 +417,43 @@ private:
 			return;
 		}
 
-		// Peek at the output path BEFORE applying the config — ValidateConfig
-		// wipes the folder it points to, so confirm with the user first.
-		std::filesystem::path out_path;
+		// Reject empty / non-object config before any destructive action
+		if (j.is_null() || !j.is_object() || j.empty()) {
+			g_log.add("[ERROR] Configuration file is empty: " + path);
+			cfg_ok_ = false;
+			return;
+		}
+
+		// Stage the config into memory. Wiping + ValidateConfig + SetLogFile are deferred
+		// to the "Confirm Parameters" button, so loading a config is itself non-destructive.
+		std::string base_output;
 		if (j.contains("Output_Settings") && j["Output_Settings"].is_object()) {
 			const auto &out = j["Output_Settings"];
 			if (out.contains("Output_Folder_Path") && out["Output_Folder_Path"].is_string()) {
-				out_path = out["Output_Folder_Path"].get<std::string>();
+				base_output = out["Output_Folder_Path"].get<std::string>();
 			}
 		}
 
-		auto apply = [this, j = std::move(j), path]() mutable {
-			try {
-				cfg_ = std::move(j);
-				configvalidator::ValidateConfig(cfg_);	  // wipes output folder as a side effect
-				cfg_path_ = path;
-				cfg_ok_ = true;
-				sync_bufs_from_cfg();
-				g_log.add("[INFO] Loaded configuration from: " + path);
-			} catch (const std::exception &e) {
-				g_log.add(std::string("[ERROR] Apply config failed: ") + e.what());
-				cfg_ok_ = false;
+		try {
+			cfg_ = std::move(j);
+			base_output_path_ = base_output;
+			std::string pc;
+			if (cfg_.contains("Input_Settings") && cfg_["Input_Settings"].is_object() && cfg_["Input_Settings"].contains("Point_Cloud_File_Path") &&
+				cfg_["Input_Settings"]["Point_Cloud_File_Path"].is_string()) {
+				pc = cfg_["Input_Settings"]["Point_Cloud_File_Path"].get<std::string>();
 			}
-		};
-
-		if (out_path.empty()) {
-			apply();
-		} else {
-			request_clear_output_confirmation(out_path, std::move(apply));
+			if (!base_output.empty() && !pc.empty()) {
+				std::filesystem::path out = std::filesystem::path(base_output) / std::filesystem::path(pc).stem();
+				cfg_["Output_Settings"]["Output_Folder_Path"] = out.string();
+			}
+			cfg_path_ = path;
+			cfg_ok_ = true;
+			cfg_dirty_ = true;
+			sync_bufs_from_cfg();
+			g_log.add("[INFO] Loaded configuration from: " + path);
+		} catch (const std::exception &e) {
+			g_log.add(std::string("[ERROR] Apply config failed: ") + e.what());
+			cfg_ok_ = false;
 		}
 	}
 
@@ -430,8 +466,6 @@ private:
 		};
 		auto &in = cfg_["Input_Settings"];
 		cp(buf_pc_path_, sizeof(buf_pc_path_), in, "Point_Cloud_File_Path");
-		cp(buf_batch_dir_, sizeof(buf_batch_dir_), in, "Batch_Processing_Folder_Path");
-		cp(buf_ext_, sizeof(buf_ext_), in, "Point_Cloud_File_Extension");
 
 		if (in.contains("Labels_Names")) {
 			auto &ln = in["Labels_Names"];
@@ -439,14 +473,6 @@ private:
 				auto &p = ln["PLY_Format"];
 				cp(buf_sem_name_, sizeof(buf_sem_name_), p, "Semantic_Label_Name");
 				cp(buf_inst_name_, sizeof(buf_inst_name_), p, "Instance_Label_Name");
-				if (p.contains("Labels_File_Paths")) {
-					cp(buf_sem_file_ply_, sizeof(buf_sem_file_ply_), p["Labels_File_Paths"], "Semantic_Label_File_Path");
-					cp(buf_inst_file_ply_, sizeof(buf_inst_file_ply_), p["Labels_File_Paths"], "Instance_Label_File_Path");
-				}
-			}
-			if (ln.contains("TXT_XYZ_Format") && ln["TXT_XYZ_Format"].contains("Labels_File_Paths")) {
-				cp(buf_sem_file_txt_, sizeof(buf_sem_file_txt_), ln["TXT_XYZ_Format"]["Labels_File_Paths"], "Semantic_Label_File_Path");
-				cp(buf_inst_file_txt_, sizeof(buf_inst_file_txt_), ln["TXT_XYZ_Format"]["Labels_File_Paths"], "Instance_Label_File_Path");
 			}
 		}
 		cp(buf_out_dir_, sizeof(buf_out_dir_), cfg_["Output_Settings"], "Output_Folder_Path");
@@ -458,29 +484,21 @@ private:
 		}
 		auto &in = cfg_["Input_Settings"];
 		in["Point_Cloud_File_Path"] = std::string(buf_pc_path_);
-		in["Batch_Processing_Folder_Path"] = std::string(buf_batch_dir_);
-		in["Point_Cloud_File_Extension"] = std::string(buf_ext_);
 
 		auto &ply = in["Labels_Names"]["PLY_Format"];
 		ply["Semantic_Label_Name"] = std::string(buf_sem_name_);
 		ply["Instance_Label_Name"] = std::string(buf_inst_name_);
-		ply["Labels_File_Paths"]["Semantic_Label_File_Path"] = std::string(buf_sem_file_ply_);
-		ply["Labels_File_Paths"]["Instance_Label_File_Path"] = std::string(buf_inst_file_ply_);
-
-		auto &txt = in["Labels_Names"]["TXT_XYZ_Format"];
-		txt["Labels_File_Paths"]["Semantic_Label_File_Path"] = std::string(buf_sem_file_txt_);
-		txt["Labels_File_Paths"]["Instance_Label_File_Path"] = std::string(buf_inst_file_txt_);
 
 		cfg_["Output_Settings"]["Output_Folder_Path"] = std::string(buf_out_dir_);
 	}
 
 
-	// Triggered when the user finishes editing buf_out_dir_ (Enter / blur) or
-	// picks a folder via the dialog. Pops up the confirmation; on confirm the
-	// new path is committed to cfg_ and the folder is wiped. On cancel the
-	// visible buffer is reverted so what's shown matches what's committed.
+	// Triggered when the user finishes editing buf_out_dir_ (Enter / blur) or picks a folder via the dialog.
+	// User input is treated as the new BASE; final = base / stem(pc) (or = base when pc is empty).
+	// If the input already ends with stem(pc), strip it so re-typing the displayed final stays a no-op.
+	// Wipe + validation are deferred to the "Confirm Parameters" button.
 	void confirm_output_path_change_from_buf() {
-		std::filesystem::path new_path = buf_out_dir_;
+		std::filesystem::path new_input = buf_out_dir_;
 
 		std::string current_in_cfg;
 		if (cfg_.contains("Output_Settings") && cfg_["Output_Settings"].is_object()) {
@@ -490,38 +508,107 @@ private:
 			}
 		}
 
-		// No actual change — nothing to confirm.
-		if (new_path == std::filesystem::path(current_in_cfg)) {
+		// No actual edit
+		if (new_input == std::filesystem::path(current_in_cfg)) {
 			return;
 		}
 
-		// User blanked the field — clear cfg silently, no destructive op.
-		if (new_path.empty()) {
+		// User blanked the field
+		if (new_input.empty()) {
 			if (cfg_.contains("Output_Settings") && cfg_["Output_Settings"].is_object()) {
 				cfg_["Output_Settings"]["Output_Folder_Path"] = std::string();
 			}
+			base_output_path_.clear();
+			cfg_dirty_ = true;
 			return;
 		}
 
-		request_clear_output_confirmation(
-				new_path,
-				[this, new_path]() {
-					if (!cfg_.contains("Output_Settings") || !cfg_["Output_Settings"].is_object()) {
-						cfg_["Output_Settings"] = nlohmann::json::object();
-					}
-					cfg_["Output_Settings"]["Output_Folder_Path"] = new_path.string();
-					try_prepare_output_folder(new_path);
-					g_log.add("[INFO] Output folder set: " + new_path.string());
-				},
-				[this, previous = current_in_cfg]() {
-					strncpy(buf_out_dir_, previous.c_str(), sizeof(buf_out_dir_) - 1);
-					buf_out_dir_[sizeof(buf_out_dir_) - 1] = 0;
-				});
+		std::string pc_str;
+		if (cfg_.contains("Input_Settings") && cfg_["Input_Settings"].is_object() && cfg_["Input_Settings"].contains("Point_Cloud_File_Path") &&
+			cfg_["Input_Settings"]["Point_Cloud_File_Path"].is_string()) {
+			pc_str = cfg_["Input_Settings"]["Point_Cloud_File_Path"].get<std::string>();
+		}
+		std::filesystem::path pc_stem = pc_str.empty() ? std::filesystem::path() : std::filesystem::path(pc_str).stem();
+		std::filesystem::path new_base = (!pc_stem.empty() && new_input.filename() == pc_stem) ? new_input.parent_path() : new_input;
+		std::filesystem::path new_final = pc_stem.empty() ? new_base : new_base / pc_stem;
+
+		if (!cfg_.contains("Output_Settings") || !cfg_["Output_Settings"].is_object()) {
+			cfg_["Output_Settings"] = nlohmann::json::object();
+		}
+		cfg_["Output_Settings"]["Output_Folder_Path"] = new_final.string();
+		base_output_path_ = new_base.string();
+		cfg_dirty_ = true;
+		sync_bufs_from_cfg();
 	}
 
 
-	// (Re)create the output folder. Returns true on success.
-	// Logs an error to the GUI log on failure and stores the message in error_msg_.
+	// Triggered when the user finishes editing buf_pc_path_ (Enter / blur) or picks a file via the dialog.
+	// Stages the new pc into cfg and refreshes the final output (= base / stem(pc)) when a base
+	// is known. Wipe + validation are deferred to the "Confirm Parameters" button.
+	void confirm_pc_path_change_from_buf() {
+		std::filesystem::path new_pc(buf_pc_path_);
+
+		std::string current_pc;
+		if (cfg_.contains("Input_Settings") && cfg_["Input_Settings"].is_object()) {
+			const auto &in = cfg_["Input_Settings"];
+			if (in.contains("Point_Cloud_File_Path") && in["Point_Cloud_File_Path"].is_string()) {
+				current_pc = in["Point_Cloud_File_Path"].get<std::string>();
+			}
+		}
+
+		// No actual change
+		if (new_pc == std::filesystem::path(current_pc)) {
+			return;
+		}
+
+		if (!cfg_.contains("Input_Settings") || !cfg_["Input_Settings"].is_object()) {
+			cfg_["Input_Settings"] = nlohmann::json::object();
+		}
+		cfg_["Input_Settings"]["Point_Cloud_File_Path"] = new_pc.string();
+		cfg_dirty_ = true;
+
+		if (!new_pc.empty() && !base_output_path_.empty()) {
+			const std::filesystem::path new_final = std::filesystem::path(base_output_path_) / new_pc.stem();
+			cfg_["Output_Settings"]["Output_Folder_Path"] = new_final.string();
+			sync_bufs_from_cfg();
+		}
+	}
+
+
+	// Triggered by the "Confirm Parameters" button. Sole entry point for ValidateConfig:
+	// flushes the GUI bufs into cfg_, asks the user before wiping the output folder, then
+	// validates and binds the log file. All earlier path edits are pure staging.
+	void confirm_parameters() {
+		if (!cfg_ok_ || is_running_) {
+			return;
+		}
+		sync_cfg_from_bufs();
+
+		std::string out_path;
+		if (cfg_.contains("Output_Settings") && cfg_["Output_Settings"].is_object() && cfg_["Output_Settings"].contains("Output_Folder_Path") &&
+			cfg_["Output_Settings"]["Output_Folder_Path"].is_string()) {
+			out_path = cfg_["Output_Settings"]["Output_Folder_Path"].get<std::string>();
+		}
+		if (out_path.empty()) {
+			g_log.add("[ERROR] Output folder is not set.");
+			return;
+		}
+
+		request_clear_output_confirmation(out_path, [this, out_path]() {
+			try {
+				configvalidator::ValidateConfig(cfg_);	// wipes output folder as a side effect
+				Logger::Instance().SetLogFile(std::filesystem::path(out_path) / ".log");
+				sync_bufs_from_cfg();
+				cfg_dirty_ = false;
+				g_log.add("[INFO] Parameters confirmed and validated.");
+			} catch (const std::exception &e) {
+				g_log.add(std::string("[ERROR] Validation failed: ") + e.what());
+			}
+		});
+	}
+
+
+	// Recreate the output folder. Returns true on success
 	bool try_prepare_output_folder(const std::filesystem::path &path) {
 		try {
 			if (std::filesystem::exists(path) && std::filesystem::is_directory(path)) {
@@ -532,20 +619,13 @@ private:
 		} catch (const std::exception &e) {
 			std::string msg = "Failed to prepare output folder '" + path.string() + "': " + e.what();
 			g_log.add("[ERROR] " + msg);
-			error_msg_ = std::move(msg);
+			set_error(std::move(msg));
 			return false;
 		}
 	}
 
 
-	// Confirm with the user that `path` is OK to wipe, then run `on_confirm`.
-	// Popup is BYPASSED (on_confirm runs synchronously) when:
-	//   - the folder is empty or missing (nothing destructive about to happen), or
-	//   - the user previously checked "Don't ask again this session".
-	// `on_cancel` runs only when the user explicitly cancels the popup.
-	// The popup itself is purely a confirmation; it does NOT touch the disk —
-	// the callback decides what to do (e.g., call ValidateConfig, clear the
-	// folder via try_prepare_output_folder, etc.).
+	// Confirm with the user that `path` is OK to wipe, then run `on_confirm`
 	void request_clear_output_confirmation(const std::filesystem::path &path, std::function<void()> on_confirm,
 										   std::function<void()> on_cancel = {}) {
 		if (show_clear_output_popup_ || pending_after_confirm_) {
@@ -605,7 +685,7 @@ private:
 
 		const bool danger = pending_output_has_contents_;
 
-		// ---- Header ----
+		// Header
 		if (danger) {
 			ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.20f, 1.0f), "[WARN] Output folder is NOT empty (%zu item%s).", pending_output_item_count_,
 							   pending_output_item_count_ == 1 ? "" : "s");
@@ -615,13 +695,13 @@ private:
 		ImGui::Separator();
 		ImGui::Spacing();
 
-		// ---- Path ----
+		// Path
 		ImGui::TextDisabled("Path:");
 		ImGui::SameLine();
-		ImGui::TextColored(ImVec4(0.7f, 0.85f, 1.0f, 1.0f), "%s", pending_output_path_.string().c_str());
+		ImGui::TextColored(ImVec4(0.255f, 0.682f, 0.231f, 1), "%s", pending_output_path_.string().c_str());
 		ImGui::Spacing();
 
-		// ---- Body ----
+		// Body
 		if (danger) {
 			ImGui::TextDisabled("Existing contents (preview):");
 			ImGui::BeginChild("##preview", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 5.5f), true);
@@ -640,15 +720,16 @@ private:
 		}
 		ImGui::Spacing();
 
-		// ---- "Don't ask again" checkbox ----
+		//  "Don't ask again" checkbox
 		ImGui::Checkbox("Don't ask again this session", &dont_ask_again_session_);
 		if (ImGui::IsItemHovered()) {
-			ImGui::SetTooltip("Skip this confirmation for the rest of this session.\n"
-							  "Existing output contents will still be deleted automatically.");
+			ImGui::SetTooltip(
+					"Skip this confirmation for the rest of this session.\n"
+					"Existing output contents will still be deleted automatically.");
 		}
 		ImGui::Separator();
 
-		// ---- Buttons (centered) ----
+		// Buttons (centered)
 		const float btn_w = 150.0f;
 		const float spacing = ImGui::GetStyle().ItemSpacing.x;
 		const float total_w = btn_w * 2.0f + spacing;
@@ -695,7 +776,7 @@ private:
 	}
 
 
-	//  About dialog
+	// About dialog
 	void draw_about() {
 		ImGui::SetNextWindowPos(ImVec2(width() * 0.5f, height() * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 		ImGui::Begin("About", &show_about_, ImGuiWindowFlags_NoResize);
@@ -706,10 +787,21 @@ private:
 	}
 
 
-	//  Parameter editing panel
+	void draw_help() {
+		ImGui::SetNextWindowPos(ImVec2(width() * 0.5f, height() * 0.5f), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowSize(ImVec2(300, 600), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Viewer usage", &show_help_, ImGuiWindowFlags_NoResize);
+		ImGui::Text("Manual");
+		ImGui::Separator();
+		ImGui::TextUnformatted(easy3d_usage_.c_str());
+		ImGui::End();
+	}
+
+
+	// Parameter editing panel
 	void draw_parameter_panel() {
-		ImGui::SetNextWindowPos(ImVec2(10, menu_height_ + 40), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(380, 520), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImVec2(3, menu_height_ + 35), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(380, 560), ImGuiCond_FirstUseEver);
 
 		if (!ImGui::Begin("Parameters", &show_param_panel_)) {
 			ImGui::End();
@@ -723,14 +815,14 @@ private:
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("Load Default Configuration File")) {
-				load_config_from_path(RESOURCE_DIR "/default_configure.json");
+				load_config_from_path(ROOT_DIR "/resources/default_configure.json");
 			}
 
 			ImGui::End();
 			return;
 		}
 
-		// -- Toolbar --
+		// Toolbar
 		if (ImGui::Button("Load")) {
 			load_parameter_file();
 		}
@@ -744,49 +836,88 @@ private:
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Load Default Parameters")) {
-			load_config_from_path(RESOURCE_DIR "/default_configure.json");
+			load_config_from_path(ROOT_DIR "/resources/default_configure.json");
 		}
 		ImGui::Separator();
 
 		ImGui::PushItemWidth(ImGui::GetFontSize() * 12);
-		// ---- Input Settings ----
+		// Input Settings
 		if (ImGui::CollapsingHeader("Input Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
 			auto &in = cfg_["Input_Settings"];
 
-			ImGui::InputText("Point Cloud", buf_pc_path_, sizeof(buf_pc_path_));
+			ImGui::InputText("Input Point Cloud", buf_pc_path_, sizeof(buf_pc_path_));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("%s", buf_pc_path_);
+			}
+			bool needs_pc_confirm = ImGui::IsItemDeactivatedAfterEdit();
 			ImGui::SameLine();
 			if (ImGui::SmallButton("...##pc")) {
-				const std::vector<std::string> f = { "Point Cloud (*.ply *.xyz *.txt)", "*.ply *.xyz *.txt", "All Files (*.*)", "*" };
-				std::string p = easy3d::dialog::open("Select Point Cloud", "", f);
+				const std::vector<std::string> f = { "Input Point Cloud (*.ply *.xyz *.txt)", "*.ply *.xyz *.txt" };
+				std::string p = easy3d::dialog::open("Select Input Point Cloud", "", f);
 				if (!p.empty()) {
 					strncpy(buf_pc_path_, p.c_str(), sizeof(buf_pc_path_) - 1);
+					buf_pc_path_[sizeof(buf_pc_path_) - 1] = 0;
+					needs_pc_confirm = true;
 				}
 			}
+			if (needs_pc_confirm) {
+				confirm_pc_path_change_from_buf();
+			}
 
+			std::filesystem::path input_file_path(buf_pc_path_);
 			bool wl = in.value("With_Labels", false);
+			bool is_ply = (input_file_path.extension() == ".ply");
+
+			if (!is_ply) {	// Default format: x, y ,z
+				auto &xyz_txt = in["Labels_Names"]["TXT_XYZ_Format"];
+				int total_cols = xyz_txt.value("Total_Columns", 3);
+				xyz_txt["Total_Columns"] = total_cols;
+			}
+
 			if (ImGui::Checkbox("With Labels", &wl)) {
 				in["With_Labels"] = wl;
 			}
 
 			if (wl) {
-				if (ImGui::TreeNode("PLY Format Labels")) {
-					auto &ply = in["Labels_Names"]["PLY_Format"];
-					ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
-					ImGui::InputText("Semantic Label Name", buf_sem_name_, sizeof(buf_sem_name_));
-					ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
-					ImGui::InputText("Instance Label Name", buf_inst_name_, sizeof(buf_inst_name_));
-					ImGui::TreePop();
+				if (is_ply) {
+					if (ImGui::TreeNodeEx("PLY Format Labels", ImGuiTreeNodeFlags_DefaultOpen)) {
+						ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
+						ImGui::InputText("Semantic Label Name", buf_sem_name_, sizeof(buf_sem_name_));
+						ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
+						ImGui::InputText("Instance Label Name", buf_inst_name_, sizeof(buf_inst_name_));
+						ImGui::TreePop();
+					}
+				} else {
+					// TODO: support xyz/txt input with labels
+					// auto &xyz_txt = in["Labels_Names"]["TXT_XYZ_Format"];
+					// int total_cols = xyz_txt.value("Total_Columns", 4);
+					// if (ImGui::InputInt("Total Columns (Start from 0)", &total_cols)) {
+					// 	xyz_txt["Total_Columns"] = total_cols;
+					// }
+					// if (ImGui::TreeNodeEx("XYZ/TXT Format Labels", ImGuiTreeNodeFlags_DefaultOpen)) {
+					// 	int sem_cols = xyz_txt.value("Semantic_Labels_Index", 3);
+					// 	int ins_cols = xyz_txt.value("Instance_Labels_Index", 4);
+					// 	if (ImGui::InputInt("Semantic Columns Index (Start from 0)", &sem_cols)) {
+					// 		xyz_txt["Semantic_Labels_Index"] = sem_cols;
+					// 	}
+					// 	if (ImGui::InputInt("Instance Columns Index (Start from 0)", &ins_cols)) {
+					// 		xyz_txt["Instance_Labels_Index"] = ins_cols;
+					// 	}
+					// 	ImGui::TreePop();
+					// }
 				}
 			}
 		}
 
-		// ---- Preprocess ----
+		// Preprocess
 		if (ImGui::CollapsingHeader("Preprocess")) {
 			auto &pr = cfg_["Preprocess"];
 			int dn = pr.value("Down_Sample_Number", 10240);
-			if (ImGui::InputInt("Down Sample Number", &dn))
-				if (dn > 0)
+			if (ImGui::InputInt("Down Sample Number", &dn)) {
+				if (dn > 0) {
 					pr["Down_Sample_Number"] = dn;
+				}
+			}
 
 			float dl = static_cast<float>(pr.value("Normalize_AABB_Length", 1.60));
 			if (ImGui::InputFloat("Normalize AABB", &dl, 0.01f, 0.1f, "%.3f"))
@@ -795,8 +926,8 @@ private:
 				}
 		}
 
-		// ---- Constrained Laplacian Operator ----
-		if (ImGui::CollapsingHeader("Constrained Laplacian Operator")) {
+		// Constrained Laplacian Operator
+		if (ImGui::CollapsingHeader("Constrained Laplacian Operator", ImGuiTreeNodeFlags_DefaultOpen)) {
 			auto &cl = cfg_["Constrained_Laplacian_Operator"];
 
 			bool knn = cl.value("Use_KNN_Search", true);
@@ -864,7 +995,7 @@ private:
 			}
 		}
 
-		// ---- Adaptive Contraction ----
+		// Adaptive Contraction
 		if (ImGui::CollapsingHeader("Adaptive Contraction")) {
 			auto &ac = cfg_["Adaptive_Contraction"];
 			float st = static_cast<float>(ac.value("Smooth_Sigma_Threshold", 0.90));
@@ -885,7 +1016,7 @@ private:
 			}
 		}
 
-		// ---- Terminate Condition ----
+		// Terminate Condition
 		if (ImGui::CollapsingHeader("Terminate Condition")) {
 			auto &tc = cfg_["Terminate_Condition"];
 			int mi = tc.value("Max_Iteration", 25);
@@ -902,7 +1033,7 @@ private:
 			}
 		}
 
-		// ---- Skeleton Building ----
+		// Skeleton Building
 		if (ImGui::CollapsingHeader("Skeleton Building")) {
 			auto &sb = cfg_["Skeleton_Building"];
 			float ds = static_cast<float>(sb.value("Down_Sample_Ratio", 0.10));
@@ -923,9 +1054,12 @@ private:
 			}
 		}
 
-		// ---- Output Settings ----
+		// Output Settings
 		if (ImGui::CollapsingHeader("Output Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
 			ImGui::InputText("Output Folder", buf_out_dir_, sizeof(buf_out_dir_));
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("%s", buf_out_dir_);
+			}
 			bool needs_confirm = ImGui::IsItemDeactivatedAfterEdit();
 			ImGui::SameLine();
 			if (ImGui::SmallButton("...##od")) {
@@ -949,14 +1083,31 @@ private:
 		}
 		ImGui::PopItemWidth();
 
+		// Confirm Parameters: the only entry point that runs ValidateConfig and prepares the output folder
+		ImGui::Separator();
+		ImGui::Spacing();
+		const float btn_w = 220.0f;
+		ImGui::SetCursorPosX((ImGui::GetWindowSize().x - btn_w) * 0.5f);
+		const bool can_confirm = !is_running_;
+		if (!can_confirm) {
+			ImGui::BeginDisabled();
+		}
+		if (ImGui::Button("Confirm Parameters", ImVec2(btn_w, 32))) {
+			confirm_parameters();
+		}
+		if (!can_confirm) {
+			ImGui::EndDisabled();
+		}
+		ImGui::Spacing();
+
 		ImGui::End();
 	}
 
 
-	//  Pipeline control panel
+	// Pipeline control panel
 	void draw_pipeline_panel() {
-		ImGui::SetNextWindowPos(ImVec2(static_cast<float>(width()) - 215.0f, menu_height_ + 40), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(200, 400), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImVec2(static_cast<float>(width()) - 323, menu_height_ + 35), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(320, 400), ImGuiCond_FirstUseEver);
 
 		if (!ImGui::Begin("Pipeline Control", &show_pipeline_panel_)) {
 			ImGui::End();
@@ -969,29 +1120,31 @@ private:
 			return;
 		}
 
-		// -- Status --
+		// Status
 		if (is_running_) {
 			int rs = running_stage_.load();
-			ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Running: %s", (rs >= 0 && rs < kStageCount) ? kStageNames[rs] : "...");
+			ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Running: %s", (rs >= 0 && rs <= kStageCount) ? kStageNames[rs] : "...");
 			ImGui::SameLine();
 			const char *sp = "|/-\\";
 			ImGui::Text("%c", sp[static_cast<int>(ImGui::GetTime() * 8) % 4]);
 		} else {
 			int cs = completed_.load();
-			ImGui::TextColored(ImVec4(0.4f, 1, 0.4f, 1), "Completed: %s", (cs >= 0 && cs < kStageCount) ? kStageNames[cs] : "None");
+			ImGui::TextColored(ImVec4(0.255f, 0.682f, 0.231f, 1), "Completed: %s", (cs >= 0 && cs <= kStageCount) ? kStageNames[cs] : "None");
 		}
 
-		if (!error_msg_.empty()) {
-			ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Error: %s", error_msg_.c_str());
-			if (ImGui::SmallButton("Clear Error"))
-				error_msg_.clear();
+		const std::string err = get_error();
+		if (!err.empty()) {
+			ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Error: %s", err.c_str());
+			if (ImGui::IsItemHovered()) {
+				ImGui::SetTooltip("%s", err.c_str());
+			}
 		}
 
 		ImGui::Separator();
 
-		// -- Per-step buttons --
+		// Per-step buttons
 		auto step_btn = [this](const char *label, Stage stg, Stage prereq) {
-			bool ok = !is_running_ && completed_.load() >= static_cast<int>(prereq);
+			bool ok = !is_running_ && !cfg_dirty_ && completed_.load() >= static_cast<int>(prereq);
 			if (!ok) {
 				ImGui::BeginDisabled();
 			}
@@ -1008,6 +1161,9 @@ private:
 			if (!ok) {
 				ImGui::EndDisabled();
 			}
+			if (cfg_dirty_ && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+				ImGui::SetTooltip("Click 'Confirm Parameters' first.");
+			}
 		};
 
 		step_btn("1. Load Point Cloud", Stage::LOAD_POINT_CLOUD, Stage::NONE);
@@ -1023,7 +1179,7 @@ private:
 
 		ImGui::Separator();
 
-		bool ok = !is_running_ && cfg_ok_;
+		bool ok = !is_running_ && cfg_ok_ && !cfg_dirty_;
 		if (!ok) {
 			ImGui::BeginDisabled();
 		}
@@ -1032,6 +1188,9 @@ private:
 		}
 		if (!ok) {
 			ImGui::EndDisabled();
+		}
+		if (cfg_dirty_ && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+			ImGui::SetTooltip("Click 'Confirm Parameters' first.");
 		}
 
 		ImGui::Separator();
@@ -1046,10 +1205,10 @@ private:
 	}
 
 
-	//  Log panel
+	// Log panel
 	void draw_log_panel() {
-		ImGui::SetNextWindowPos(ImVec2(200, static_cast<float>(height()) - 220), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(static_cast<float>(width()) - 300, 210), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImVec2(197, static_cast<float>(height()) - 203), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(static_cast<float>(width()) - 200, 200), ImGuiCond_FirstUseEver);
 
 		if (!ImGui::Begin("Log", &show_log_panel_)) {
 			ImGui::End();
@@ -1065,19 +1224,19 @@ private:
 
 		ImGui::BeginChild("##logscroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
 
-		auto lines = g_log.lines();
-		for (const auto &l: lines) {
-			if (l.find("[ERROR]") != std::string::npos)
+		const bool need_scroll = g_log.render([](const std::string &l) {
+			if (l.find("[ERROR]") != std::string::npos) {
 				ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "%s", l.c_str());
-			else if (l.find("[WARN") != std::string::npos)
+			} else if (l.find("[WARN") != std::string::npos) {
 				ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "%s", l.c_str());
-			else if (l.find("[INFO]") != std::string::npos)
+			} else if (l.find("[INFO]") != std::string::npos) {
 				ImGui::TextColored(ImVec4(0.5f, 0.85f, 0.5f, 1), "%s", l.c_str());
-			else
+			} else {
 				ImGui::TextUnformatted(l.c_str());
-		}
+			}
+		});
 
-		if (g_log.consume_scroll()) {
+		if (need_scroll) {
 			ImGui::SetScrollHereY(1.0f);
 		}
 
@@ -1086,10 +1245,9 @@ private:
 	}
 
 
-	//  Layer Manager panel
-
+	// Layer Manager panel
 	void draw_layer_manager() {
-		ImGui::SetNextWindowPos(ImVec2(10, menu_height_ + 10), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowPos(ImVec2(static_cast<float>(width()) - 626, menu_height_ + 3), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(300, 400), ImGuiCond_FirstUseEver);
 
 		if (!ImGui::Begin("Layer Manager", &show_layer_manager_)) {
@@ -1105,7 +1263,7 @@ private:
 			return;
 		}
 
-		// ---- Toolbar ----
+		// Toolbar
 		if (ImGui::SmallButton("Show All")) {
 			for (const auto &m: all_models) {
 				if (m->renderer()) {
@@ -1140,7 +1298,7 @@ private:
 		}
 		ImGui::Separator();
 
-		// ---- Model list ----
+		// Model list
 		easy3d::Model *cur = current_model();
 		int model_to_delete = -1;
 
@@ -1155,14 +1313,14 @@ private:
 
 			ImGui::PushID(mi);
 
-			// --- Visibility checkbox ---
+			// Visibility checkbox
 			bool vis = ren->is_visible();
 			if (ImGui::Checkbox("##vis", &vis)) {
 				ren->set_visible(vis);
 			}
 			ImGui::SameLine();
 
-			// --- Model type icon ---
+			// Model type icon
 			const char *icon = "[?]";
 			if (dynamic_cast<easy3d::PointCloud *>(model)) {
 				icon = "[P]";
@@ -1174,7 +1332,7 @@ private:
 			ImGui::TextColored(ImVec4(0.5f, 0.7f, 1.0f, 1.0f), "%s", icon);
 			ImGui::SameLine();
 
-			// --- Selectable model name (highlight current model) ---
+			// Selectable model name (highlight current model)
 			bool is_current = (model == cur);
 			ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_AllowOverlap;
 			if (is_current) {
@@ -1207,7 +1365,7 @@ private:
 				}
 			}
 
-			// --- Right-click context menu ---
+			// Right-click context menu
 			if (ImGui::BeginPopupContextItem("##model_ctx")) {
 				if (ImGui::MenuItem("Show Only This")) {
 					for (const auto &m: all_models) {
@@ -1230,7 +1388,7 @@ private:
 				ImGui::EndPopup();
 			}
 
-			// --- Drawable children ---
+			// Drawable children
 			if (node_open) {
 				auto draw_drawable_row = [](const char *type_tag, auto &drawable_list) {
 					for (const auto &d: drawable_list) {
@@ -1256,7 +1414,7 @@ private:
 			ImGui::PopID();
 		}
 
-		// ---- Standalone drawables ----
+		// Standalone drawables
 		const auto &standalone = drawables();
 		if (!standalone.empty()) {
 			ImGui::Separator();
@@ -1284,13 +1442,13 @@ private:
 	}
 
 
-	//  Pipeline execution  (background thread)
+	// Pipeline execution  (background thread)
 	void launch_step(Stage stg) {
 		if (is_running_) {
 			return;
 		}
 		sync_cfg_from_bufs();
-		error_msg_.clear();
+		clear_error();
 		is_running_ = true;
 		running_stage_ = static_cast<int>(stg);
 
@@ -1307,7 +1465,7 @@ private:
 					vis_pending_.push_back(stg);
 				}
 			} catch (const std::exception &e) {
-				error_msg_ = e.what();
+				set_error(e.what());
 				g_log.add(std::string("[ERROR] ") + e.what());
 			}
 			is_running_ = false;
@@ -1320,7 +1478,7 @@ private:
 			return;
 		}
 		sync_cfg_from_bufs();
-		error_msg_.clear();
+		clear_error();
 		is_running_ = true;
 		running_stage_ = static_cast<int>(Stage::LOAD_POINT_CLOUD);
 
@@ -1330,7 +1488,6 @@ private:
 
 		worker_ = std::thread([this]() {
 			try {
-				Logger::Instance().SetLogFile(cfg_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>() / ".log");
 				Logger::Instance().PrintTitle();
 				Logger::Instance().Log("SkelSeg GUI - Run All");
 
@@ -1347,7 +1504,7 @@ private:
 				g_log.add("[INFO] Full pipeline completed successfully!");
 				Logger::Instance().Log("SkelSeg GUI - Pipeline Complete!");
 			} catch (const std::exception &e) {
-				error_msg_ = e.what();
+				set_error(e.what());
 				g_log.add(std::string("[ERROR] Pipeline failed: ") + e.what());
 			}
 			is_running_ = false;
@@ -1360,6 +1517,9 @@ private:
 
 		switch (stg) {
 			case Stage::LOAD_POINT_CLOUD: {
+				Logger::Instance().PrintTitle();
+				Logger::Instance().Log("SkelSeg GUI - Run Step by Step");
+
 				g_log.add("[INFO] Loading point cloud...");
 				original_cloud_ = tool::utility::Vector2Matrix(tool::io::LoadPointCloud(cfg_));
 				g_log.add("[INFO] Loaded " + std::to_string(original_cloud_.rows()) + " points");
@@ -1444,7 +1604,7 @@ private:
 	}
 
 
-	//  Visualization  (main thread only)
+	// Visualization (main thread only)
 	void drain_pending_visualizations() {
 		std::vector<Stage> todo;
 		{
@@ -1464,11 +1624,16 @@ private:
 	void visualize(Stage stg) {
 		std::filesystem::path out = cfg_["Output_Settings"]["Output_Folder_Path"].get<std::filesystem::path>();
 		switch (stg) {
-			case Stage::LOAD_POINT_CLOUD:
-				add_pc("Original Point Cloud", out / "0_Original.ply", { 0.6f, 0.6f, 0.6f, 1.0f }, false);
-				break;
 			case Stage::PREPROCESS:
-				add_pc("Input Point Cloud", out / "1_Input.ply", { 0.6f, 0.6f, 0.6f, 1.0f });
+				show_layer_manager_ = true;
+				add_pc("Original Point Cloud", out / "0_Original.ply", { 0.6f, 0.6f, 0.6f, 1.0f }, false);
+				if (buf_inst_name_[0] != '\0') {
+					add_labeled_pc("Input Point Cloud", out / "1_Input.ply", std::string("v:") + buf_inst_name_);
+				} else if (buf_sem_name_[0] != '\0') {
+					add_labeled_pc("Input Point Cloud", out / "1_Input.ply", std::string("v:") + buf_sem_name_);
+				} else {
+					add_pc("Input Point Cloud", out / "1_Input.ply", { 0.6f, 0.6f, 0.6f, 1.0f });
+				}
 				break;
 			case Stage::LAPLACIAN:
 				add_pc("Laplacian Skeleton", find_latest_cpts(out / ".iterations"), { 1.0f, 0.2f, 0.2f, 1.0f });
@@ -1492,7 +1657,7 @@ private:
 				add_labeled_graph("Segmented Skeleton", out / "7_MST-Segmented.ply");
 				break;
 			case Stage::ASSIGN_LABELS:
-				add_labeled_pc("Result", find_result_ply(out));
+				add_labeled_pc("Result", find_result_ply(out), "v:pred-instance");
 				break;
 			default:
 				break;
@@ -1500,63 +1665,87 @@ private:
 	}
 
 
+	// Place the model in the empty space within default opened windows
+	void center_view() {
+		std::vector<float> camera_state = { 3.62, 0.37, -0.2, -0.5, -0.5, -0.5, -0.5 };
+		easy3d::vec3 position = easy3d::vec3(camera_state[0], camera_state[1], camera_state[2]);
+		easy3d::quat orientation = { camera_state[3], camera_state[4], camera_state[5], camera_state[6] };
+		camera()->setPosition(position);
+		camera()->setOrientation(orientation);
+	}
+
+
 	void add_pc(const std::string &name, const std::string &ply_file, easy3d::vec4 color, bool visual = true) {
-		auto *pc = new easy3d::PointCloud;
-		easy3d::io::load_ply(ply_file, pc);
-
+		easy3d::Model *pc = add_model(ply_file);
+		if (!pc) {
+			g_log.add("[ERROR] Failed to load: " + ply_file);
+			return;
+		}
 		pc->set_name(name);
-		auto *points = pc->renderer()->get_points_drawable("vertices", false);
-		points->set_uniform_coloring(color);
+		if (auto *points = pc->renderer()->get_points_drawable("vertices", false)) {
+			points->set_uniform_coloring(color);
+		}
 		pc->renderer()->set_visible(visual);
-
-		add_model(pc);
-		fit_screen();
+		center_view();
 	}
 
 
 	void add_graph(const std::string &name, const std::string &ply_file) {
-		auto *graph = new easy3d::Graph;
-		easy3d::io::load_ply(ply_file, graph);
-
+		easy3d::Model *graph = add_model(ply_file);
+		if (!graph) {
+			g_log.add("[ERROR] Failed to load: " + ply_file);
+			return;
+		}
 		graph->set_name(name);
-
-		add_model(graph);
-		fit_screen();
+		center_view();
 	}
 
 
-	void add_labeled_pc(const std::string &name, const std::string &ply_file) {
-		auto *pc = new easy3d::PointCloud;
-		easy3d::io::load_ply(ply_file, pc);
-
+	void add_labeled_pc(const std::string &name, const std::string &ply_file, const std::string &label_name) {
+		easy3d::Model *pc = add_model(ply_file);
+		if (!pc) {
+			g_log.add("[ERROR] Failed to load: " + ply_file);
+			return;
+		}
 		pc->set_name(name);
-		auto *points = pc->renderer()->get_points_drawable("vertices", false);
-		const easy3d::Texture *tex = easy3d::TextureManager::request(RESOURCE_DIR "/colormap.png", 42);
-		points->set_scalar_coloring(easy3d::State::VERTEX, "v:instance", tex, 0.0f, 0.0f);
-
-		add_model(pc);
-		fit_screen();
+		if (auto *points = pc->renderer()->get_points_drawable("vertices", false)) {
+			const easy3d::Texture *tex = easy3d::TextureManager::request(ROOT_DIR "/resources/colormap.png", 42);
+			try {
+				points->set_scalar_coloring(easy3d::State::VERTEX, label_name, tex, 0.0f, 0.0f);
+			} catch (const std::exception &e) {
+				g_log.add(std::string("[WARN] Scalar coloring failed (") + label_name + "): " + e.what());
+				points->set_uniform_coloring({ 0.6f, 0.6f, 0.6f, 1.0f });
+			}
+		}
+		center_view();
 	}
 
 
 	void add_labeled_graph(const std::string &name, const std::string &ply_file) {
-		auto *graph = new easy3d::Graph;
-		easy3d::io::load_ply(ply_file, graph);
-
+		easy3d::Model *graph = add_model(ply_file);
+		if (!graph) {
+			g_log.add("[ERROR] Failed to load: " + ply_file);
+			return;
+		}
 		graph->set_name(name);
-		auto *graph_vertices = graph->renderer()->get_lines_drawable("vertices", false);
-		const easy3d::Texture *tex = easy3d::TextureManager::request(RESOURCE_DIR "/colormap.png", 42);
-		graph_vertices->set_scalar_coloring(easy3d::State::VERTEX, "v:instance", tex, 0.0f, 0.0f);
-
-		add_model(graph);
-		fit_screen();
+		if (auto *graph_vertices = graph->renderer()->get_points_drawable("vertices", false)) {
+			const easy3d::Texture *tex = easy3d::TextureManager::request(ROOT_DIR "/resources/colormap.png", 42);
+			try {
+				graph_vertices->set_scalar_coloring(easy3d::State::VERTEX, "v:instance", tex, 0.0f, 0.0f);
+			} catch (const std::exception &e) {
+				g_log.add(std::string("[WARN] Scalar coloring failed: ") + e.what());
+			}
+		}
+		center_view();
 	}
 
 
-	//  Reset
+	// Reset pipeline state only; keeps the current cfg and GUI buffers intact so the user's
+	// in-flight edits aren't blown away. cfg_dirty_ is set so the next run forces a Confirm,
+	// which wipes leftover output (.iterations, intermediate PLYs) from the previous run.
 	void reset_pipeline() {
 		completed_ = 0;
-		error_msg_.clear();
+		clear_error();
 		original_cloud_ = {};
 		input_cloud_ = {};
 		lap_skeleton_ = {};
@@ -1573,6 +1762,8 @@ private:
 		while (!models().empty()) {
 			delete_model(models().back().get());
 		}
+		cfg_dirty_ = true;
+
 		g_log.add("[INFO] Pipeline reset.");
 	}
 };

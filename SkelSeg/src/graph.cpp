@@ -26,9 +26,11 @@ void Graph::GetSkeletonGraph() {
 		for (int i = 0; i < cloud_.rows(); ++i) {
 			std::vector<size_t> indices;
 			indices = kdtree.neighborhood_indices(cloud_vertices[i], radius);
-			indices.erase(indices.begin());
 
 			for (const size_t &index: indices) {
+				if (index == static_cast<size_t>(i)) {
+					continue;
+				}
 				if (auto [fst, snd] = edge(i, index, graph_); !snd) {
 					boost::add_edge(i, index, graph_);
 				}

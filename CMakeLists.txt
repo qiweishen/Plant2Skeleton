@@ -126,6 +126,10 @@ target_link_libraries(SkelSeg_lib PUBLIC
 ####################################################################################################
 add_executable(${PROJECT_NAME} SkelSeg/src/main.cpp)
 
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+        ROOT_DIR="${CMAKE_SOURCE_DIR}"
+)
+
 target_link_libraries(${PROJECT_NAME} PUBLIC
         SkelSeg_lib
 )

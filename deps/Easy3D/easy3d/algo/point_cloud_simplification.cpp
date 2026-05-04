@@ -283,7 +283,8 @@ namespace easy3d {
     PointCloudSimplification::uniform_simplification(PointCloud *cloud, unsigned int num_expected) {
         std::vector<PointCloud::Vertex> points_to_delete;
 
-        if (num_expected >= cloud->n_vertices()) {
+        // if (num_expected >= cloud->n_vertices()) {
+    	if (num_expected > cloud->n_vertices()) {
             LOG(WARNING) << "expected point number (" << num_expected << ") must be smaller than the number of points ("
                          << cloud->n_vertices() << ") in the point cloud";
             return points_to_delete;

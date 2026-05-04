@@ -102,17 +102,16 @@ namespace configvalidator {
 			} catch (const std::filesystem::filesystem_error &e) {
 				return fmt::format("Filesystem error: {}", e.what());
 			}
+		}
 
-			// Check "Point_Cloud_File_Extension"
-			if (!input_settings.contains("Point_Cloud_File_Extension") || !input_settings["Point_Cloud_File_Extension"].is_string()) {
-				return "Missing or invalid 'Point_Cloud_File_Extension' in 'Input_Settings'.";
-			}
-			std::string file_extension = ToLower(input_settings["Point_Cloud_File_Extension"].get<std::string>());
-			if (file_extension != ".ply" && file_extension != ".xyz" && file_extension != ".txt") {
-				return fmt::format(
-						"Invalid 'Point_Cloud_File_Extension' in 'Input_Settings'. '{}' is not supported. Supported formats: .ply, .xyz, .txt",
-						file_extension);
-			}
+		// Check "Point_Cloud_File_Extension"
+		if (!input_settings.contains("Point_Cloud_File_Extension") || !input_settings["Point_Cloud_File_Extension"].is_string()) {
+			return "Missing or invalid 'Point_Cloud_File_Extension' in 'Input_Settings'.";
+		}
+		std::string file_extension = ToLower(input_settings["Point_Cloud_File_Extension"].get<std::string>());
+		if (file_extension != ".ply" && file_extension != ".xyz" && file_extension != ".txt") {
+			return fmt::format("Invalid 'Point_Cloud_File_Extension' in 'Input_Settings'. '{}' is not supported. Supported formats: .ply, .xyz, .txt",
+							   file_extension);
 		}
 
 		// Check "Point_Cloud_File_Path"
@@ -379,6 +378,7 @@ namespace configvalidator {
 			if (!std::filesystem::exists(output_folder_path)) {
 				// Create the output folder
 				std::filesystem::create_directories(output_folder_path);
+				std::filesystem::create_directories(output_folder_path / ".iterations");
 			} else {
 				// Check if the output folder contains subdirectories
 				bool has_contents = !std::filesystem::is_empty(output_folder_path);
@@ -387,6 +387,7 @@ namespace configvalidator {
 					// Delete all contents in the output folder
 					std::filesystem::remove_all(output_folder_path);
 					std::filesystem::create_directories(output_folder_path);
+					std::filesystem::create_directories(output_folder_path / ".iterations");
 #else
 					std::cout << "Output folder should be empty." << std::endl;
 					std::string input;
@@ -400,6 +401,7 @@ namespace configvalidator {
 							// Delete all contents in the output folder
 							std::filesystem::remove_all(output_folder_path);
 							std::filesystem::create_directories(output_folder_path);
+							std::filesystem::create_directories(output_folder_path / ".iterations");
 							break;
 						} else {
 							std::cout << "Invalid input. Please enter 'y' or 'n'." << std::endl;
@@ -410,6 +412,9 @@ namespace configvalidator {
 						std::exit(EXIT_FAILURE);
 					}
 #endif
+				} else {
+					std::filesystem::create_directories(output_folder_path);
+					std::filesystem::create_directories(output_folder_path / ".iterations");
 				}
 			}
 		} catch (const std::filesystem::filesystem_error &e) {
