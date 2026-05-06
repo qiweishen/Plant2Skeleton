@@ -1,9 +1,9 @@
 {
 	"Input_Settings": {
-		"Batch_Processing": true,
-		"Batch_Processing_Folder_Path": "/workspace/dataset/data/TreeML-Data",
+		"Batch_Processing": false,
+		"Batch_Processing_Folder_Path": "",
 		"Point_Cloud_File_Extension": ".ply",
-		"Point_Cloud_File_Path": "",
+		"Point_Cloud_File_Path": "../../resources/data/Ca46-2.ply",
 		"With_Labels": false,
 		"Labels_Names": {
 			"PLY_Format": {
@@ -28,7 +28,7 @@
 		}
 	},
 	"Preprocess": {
-		"Down_Sample_Number": 102400,
+		"Down_Sample_Number": 10240,
 		"Normalize_AABB_Length": 1.6,
 		"Normalize_Center": [
 			0.0,
@@ -62,7 +62,7 @@
 		"Noise_Branch_Length_Ratio": 0.001
 	},
 	"Output_Settings": {
-		"Output_Folder_Path": "/workspace/dataset/data/TreeML-Data/output",
+		"Output_Folder_Path": "../../output",
 		"Output_PLY_File_DataFormat": "ASCII"
 	}
 }

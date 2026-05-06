@@ -1697,6 +1697,8 @@ private:
 			return;
 		}
 		graph->set_name(name);
+		auto *graph_vertices = graph->renderer()->get_points_drawable("vertices", false);
+		graph_vertices->set_point_size(10);
 		center_view();
 	}
 
@@ -1709,7 +1711,7 @@ private:
 		}
 		pc->set_name(name);
 		if (auto *points = pc->renderer()->get_points_drawable("vertices", false)) {
-			const easy3d::Texture *tex = easy3d::TextureManager::request(ROOT_DIR "/resources/colormap.png", 42);
+			const easy3d::Texture *tex = easy3d::TextureManager::request(ROOT_DIR "/resources/colormaps/colormap.png", 42);
 			try {
 				points->set_scalar_coloring(easy3d::State::VERTEX, label_name, tex, 0.0f, 0.0f);
 			} catch (const std::exception &e) {
@@ -1728,14 +1730,15 @@ private:
 			return;
 		}
 		graph->set_name(name);
-		if (auto *graph_vertices = graph->renderer()->get_points_drawable("vertices", false)) {
-			const easy3d::Texture *tex = easy3d::TextureManager::request(ROOT_DIR "/resources/colormap.png", 42);
-			try {
-				graph_vertices->set_scalar_coloring(easy3d::State::VERTEX, "v:instance", tex, 0.0f, 0.0f);
-			} catch (const std::exception &e) {
-				g_log.add(std::string("[WARN] Scalar coloring failed: ") + e.what());
-			}
+		auto *graph_vertices = graph->renderer()->get_points_drawable("vertices", false);
+		graph_vertices->set_point_size(10);
+		const easy3d::Texture *tex = easy3d::TextureManager::request(ROOT_DIR "/resources/colormaps/colormap.png", 42);
+		try {
+			graph_vertices->set_scalar_coloring(easy3d::State::VERTEX, "v:instance", tex, 0.0f, 0.0f);
+		} catch (const std::exception &e) {
+			g_log.add(std::string("[WARN] Scalar coloring failed: ") + e.what());
 		}
+
 		center_view();
 	}
 
