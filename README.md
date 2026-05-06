@@ -1,352 +1,222 @@
-# Plant2Skeleton
+<div align="center">
 
-**Automatic plant point cloud skeletonization and segmentation.**
+# SkelSeg
 
-Plant2Skeleton extracts curve-skeleton structures from 3D plant point clouds using Laplacian-based contraction, constructs a topological graph, and segments the point cloud into **stem** (shoot) and individual **leaf** instances. It provides both a command-line interface for batch processing and an interactive GUI viewer for step-by-step visualization of the pipeline.
+### Plant Skeleton Extraction and Stem-Leaf Segmentation from 3D Point Clouds
 
-## 1. Key Features
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
+[![CMake](https://img.shields.io/badge/CMake-3.22%2B-064F8C.svg?logo=cmake)](https://cmake.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](#installation)
 
-- **Skeleton Extraction** -- Iterative Laplacian contraction with adaptive weights and distance constraints, followed by LOP (Locally Optimal Projection) refinement.
-- **Graph Construction** -- Minimum Spanning Tree (MST) computation with noise-branch pruning to produce a clean topological skeleton.
-- **Semantic Segmentation** -- Binary classification of every point as *stem* or *leaf*.
-- **Instance Segmentation** -- Assignment of unique instance IDs to individual leaves.
-- **Interactive Viewer** -- Easy3D/ImGui-based GUI with 10-stage pipeline visualization, parameter tuning, and layer management.
+<!--
+  FIGURE 1 — TEASER (hero image, full width)
+  Suggested layout: a single horizontal banner that shows, side-by-side, four
+  snapshots of the same plant: (a) raw input point cloud (gray), (b) the
+  contracted Laplacian skeleton points (orange), (c) the pruned MST overlaid
+  on the cloud (black edges), and (d) the final segmented cloud with the stem
+  in one color and each leaf in a distinct color. Render with the viewer at
+  the same camera angle for all four panels. Recommended size ~1600×400 px.
+-->
+![teaser](docs/figures/teaser.png)
+
+</div>
 
 ---
 
-## 2. Pipeline Overview
+## Abstract
+
+We present **SkelSeg**, a two-stage framework for curve-skeleton extraction and stem–leaf segmentation from single-plant point clouds. SkelSeg enhances Laplacian-Based Contraction (LBC) by introducing a *constrained Laplacian operator* and *adaptive contraction* that stabilize contraction on irregular clouds and suppress non-manifold artifacts, yielding centrally aligned and topologically consistent skeletons. From the LOP-calibrated skeleton points we build a minimum spanning tree and hierarchically decompose it to separate the stem from individual leaves; skeleton-guided projection then transfers the labels to the original cloud, producing both stem–leaf semantic segmentation and per-leaf instance segmentation. The system is implemented in C++20 and ships with an interactive Easy3D/ImGui viewer plus C++ and Python evaluators for quantitative benchmarking.
+
+---
+
+## Pipeline
 
 ```mermaid
-flowchart TD
-    A["1. Load & Preprocess\n(downsample, normalize)"] --> B["2. Laplacian Contraction"]
-    B --> C["3. FPS Downsample Skeleton"]
-    C --> D["4. LOP Calibration"]
-    D --> E["5. Graph Construction\n(initial graph → MST → pruned MST)"]
-    E --> F["6. Skeleton Segmentation\n(stem vs. leaves, instance IDs)"]
-    F --> G["7. Label Projection\n(skeleton → original point cloud)"]
+flowchart LR
+    A[Input cloud] --> B[Preprocess]
+    B --> C[Constrained<br/>Laplacian Contraction]
+    C --> D[FPS + LOP<br/>Calibration]
+    D --> E[Radius Graph<br/>→ MST → Pruning]
+    E --> F[Stem / Leaf<br/>Decomposition]
+    F --> G[Label<br/>Projection]
 ```
 
-| Stage | Description | Output File |
-|-------|-------------|-------------|
-| 1 | Load point cloud, uniform downsample to target count, normalize to unit sphere | `1_Input.ply` |
-| 2 | Iterative contraction via constrained Laplacian operator with adaptive WL/WH weights | `.iterations/cpts_*.ply` |
-| 3 | Farthest Point Sampling to reduce skeleton points | `2_FPS-Downsampled.ply` |
-| 4 | LOP operator refines skeleton positions toward the medial axis | `3_LOP-Calibrated.ply` |
-| 5 | Build radius-based graph, compute MST (Kruskal), prune short branches | `4_Initial-Graph.ply`<br />`5_MST-Raw.ply`<br />`6_MST-Pruned.ply` |
-| 6 | Traverse pruned MST to identify root, shoot path, and leaf branches; assign semantic + instance labels | `7_MST-Segmented.ply` |
-| 7 | Nearest-neighbor projection of skeleton labels to every point in the original cloud | `*_Result.ply` |
+<!--
+  FIGURE 2 — PIPELINE GALLERY (one row, 7 columns)
+  Render each pipeline stage of the same plant with the viewer and arrange
+  them left-to-right with a caption underneath each panel:
+    1. Input             (raw cloud, gray)
+    2. Contraction       (post-Laplacian cloud, orange)
+    3. FPS               (sparse skeleton points, blue)
+    4. LOP               (calibrated skeleton points, blue)
+    5. Initial graph     (gray cloud + skeleton graph edges)
+    6. Pruned MST        (clean tree only, black on white)
+    7. Segmented result  (final colored point cloud)
+  Use the same camera for all panels. Recommended ~1800×280 px.
+-->
+![pipeline](docs/figures/pipeline.png)
+
+1. **Constrained Laplacian Contraction** — iteratively contracts the cloud onto its medial structure. Per-point weights $W_L, W_H$ are updated adaptively from a smoothed local sigma so already-contracted regions stay anchored while bulky regions keep contracting; an explicit kNN distance constraint suppresses the over-shrinkage of the original LBC.
+2. **LOP Calibration** — Farthest-Point Sampling reduces the contracted cloud, then a modified LOP operator re-anchors each surviving point to the local medial axis.
+3. **Topology Recovery** — a radius graph is built over the calibrated skeleton points; Kruskal's MST gives a tree; short branches below `Noise_Branch_Length_Ratio × diag(AABB)` are pruned.
+4. **Stem–Leaf Decomposition** — the lowest tip is taken as the root; tips are traced back to their first branching vertex to define leaves; the longest shared path is the stem. Labels are propagated to the original cloud by nearest-skeleton-vertex projection.
 
 ---
 
-## 3. Project Structure
+## Repository Structure
 
 ```
-Plant2Skeleton/
-├── SkelSeg/                    # Core library and CLI
-│   ├── include/                # Public headers
-│   │   ├── skeleton.h          # Laplacian contraction
-│   │   ├── lop.h               # LOP calibration
-│   │   ├── graph.h             # Graph building & segmentation
-│   │   ├── tools.h             # I/O, preprocessing, utilities
-│   │   └── utility/
-│   │       ├── logger.h        # Thread-safe singleton logger
-│   │       ├── timer.h         # High-resolution timer
-│   │       ├── evaluator.h     # Skeleton quality metrics
-│   │       └── config_validator.h  # JSON config validation
-│   └── src/                    # Implementation
-│       ├── main.cpp            # CLI entry point
-│       ├── skeleton.cpp
-│       ├── lop.cpp
-│       ├── graph.cpp
-│       └── tools.cpp
-├── app/
-│   └── viewer/                 # Interactive GUI viewer
-│       ├── main.cpp            # Viewer application (ImGui panels)
-│       ├── viewer.h            # ViewerImGui base class
-│       ├── viewer.cpp
-│       └── CMakeLists.txt
-├── deps/                       # Third-party dependencies (vendored)
-│   ├── eigen/                  # Eigen 3.4.0
-│   ├── geometry-central/       # Geometry-central (modified)
-│   ├── Easy3D/                 # Easy3D (rendering, I/O)
-│   ├── KDTree/                 # KDTree 2.0.1
-│   ├── nlohmann/               # nlohmann/json 3.11.3
-│   ├── plywoot/                # PLY I/O
-│   └── fmt/                    # {fmt} formatting
-├── eval/                       # Python evaluation scripts
-│   ├── evaluate.py
-│   ├── semantic.py
-│   └── instance.py
-├── Docker/
-│   └── Dockerfile              # Ubuntu 22.04 dev environment
-├── configure.json              # Runtime configuration
-└── CMakeLists.txt              # Top-level build script
+SkelSeg/                 # Core C++ library + CLI (skeleton.h, lop.h, graph.h, tools.h)
+app/viewer/              # Easy3D + ImGui interactive viewer
+eval/skeleton/           # C++ skeleton-quality evaluator (Chamfer, forward/reverse)
+eval/segmentation/       # Python semantic + instance metrics (sklearn / scipy)
+deps/                    # Vendored: Eigen, geometry-central, Easy3D, KDTree, ...
+resources/               # default_configure.json + sample plants
+Docker/                  # Dockerfile + docker-compose.yml
 ```
 
----
+The build produces three executables under `build/bin/`:
 
-## 4. Interactive Viewer
-
-The GUI viewer (`app/viewer/`) provides an interactive environment for running and inspecting each pipeline stage.
-
-### 4.1 Visualization Stages
-
-| # | Stage | Visualization |
-|---|-------|---------------|
-| 1 | Load Point Cloud | Raw input point cloud |
-| 2 | FPS Downsample | Downsampled input |
-| 3 | Laplacian Contraction | Contracted point cloud |
-| 4 | FPS Downsample | Skeleton points after FPS |
-| 5 | LOP Calibration | Calibrated skeleton points |
-| 6 | Build Graph | Initial skeleton graph (edges) |
-| 7 | Compute MST | Minimum Spanning Tree |
-| 8 | Prune MST | Pruned MST |
-| 9 | Segment Skeleton | Color-coded skeleton (stem/leaf instances) |
-| 10 | Assign Labels | Final segmented point cloud with instance colors |
-
-### 4.2 GUI Panels
-
-- **Parameter Panel** -- Edit all configuration parameters in real time; load/save JSON config files.
-- **Pipeline Control** -- Run individual stages or the full pipeline; stages execute in a background thread.
-- **Log Panel** -- Thread-safe, scrollable log output capturing `std::cout` and Logger messages.
-- **Layer Manager** -- Toggle visibility of each visualization layer (point clouds, graphs, meshes).
+| Target | Role |
+|---|---|
+| `SkelSeg` | Command-line skeleton + segmentation pipeline |
+| `SkelSeg_Viewer` | Interactive viewer with per-stage inspection |
+| `SkeletonEvaluator` | Forward / reverse / Chamfer distance between cloud and skeleton |
 
 ---
 
-## 5. Dependencies
+## Installation
 
-All third-party libraries are vendored under `deps/` and built automatically by CMake. The following system-level packages are required:
-
-| Dependency | Version | Purpose |
-|------------|---------|---------|
-| C++ Compiler | C++20 support (GCC 11+, Clang 14+) | `std::ranges`, `std::filesystem` |
-| CMake | 3.22 -- 3.25 | Build system |
-| OpenMP | -- | Parallel processing |
-| Boost | graph component | Graph algorithms (MST, adjacency list) |
-| OpenGL / GLFW / GLEW | -- | Viewer rendering (only for `SkelSeg_Viewer`) |
-| X11 libs | -- | Windowing on Linux (only for `SkelSeg_Viewer`) |
-
-Bundled libraries (no manual installation needed):
-
-| Library | Version | Purpose |
-|---------|---------|---------|
-| Eigen | 3.4.0 | Linear algebra, sparse solvers |
-| geometry-central | modified | Geodesic distance, local triangulation, heat method |
-| Easy3D | 2.6.1 | 3D rendering, point cloud I/O, ImGui integration |
-| nlohmann/json | 3.11.3 | JSON configuration parsing |
-| plywoot | 0.1.0 | Fast PLY file I/O |
-| KDTree | 2.0.1 | K-d tree nearest-neighbor search |
-| {fmt} | 12.1.0 | String formatting |
-
----
-
-## 6. Build Instructions
-
-### 6.1 Prerequisites
-
-Install system-level dependencies (Ubuntu/Debian):
+**Requirements.** C++20 (GCC ≥ 11, Clang ≥ 14), CMake 3.22–3.25, OpenMP, Boost (`graph`). The viewer additionally needs OpenGL, GLFW, GLEW, and X11 dev libs on Linux. All other libraries (Eigen, geometry-central, Easy3D, KDTree, nlohmann/json, plywoot, fmt) are vendored under `deps/`.
 
 ```bash
-sudo apt-get install -y \
-    build-essential cmake ninja-build pkg-config \
-    libomp-dev libboost-all-dev \
+# Ubuntu / Debian
+sudo apt-get install -y build-essential cmake ninja-build libomp-dev libboost-all-dev \
     libgl1-mesa-dev libglu1-mesa-dev libglfw3-dev libglew-dev \
     libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev libx11-dev
-```
 
-### 6.2 Build from Source
+# macOS
+brew install cmake ninja libomp boost glfw glew
+```
 
 ```bash
-mkdir build && cd build
-cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
-ninja
+git clone --recursive https://github.com/<user>/SkelSeg.git
+cd SkelSeg
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
 
-This produces two executables:
-
-| Target | Description |
-|--------|-------------|
-| `SkelSeg` | Command-line skeleton extraction tool |
-| `SkelSeg_Viewer` | Interactive GUI viewer |
-
-### 6.3 Docker (docker-compose)
-
-A `docker-compose.yml` is provided under `Docker/` with an Ubuntu 22.04 development environment. It pre-configures volume mounts for the workspace, X11/Wayland display forwarding, audio, and debugging capabilities (ptrace, seccomp).
-
-Build the image and start an interactive shell:
-
-```bash
-cd Docker
-docker compose up -d --build
-docker compose exec skelseg-dev bash
-```
-
-Inside the container, the project is mounted at `/workspace`. Build as usual:
-
-```bash
-cd /workspace
-mkdir build && cd build
-cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release
-ninja
-```
-
-Stop and remove the container when done:
-
-```bash
-docker compose down
-```
+A `Docker/docker-compose.yml` is also provided for an Ubuntu 22.04 dev container.
 
 ---
 
-## 7. Configuration
+## Quick Start
 
-All runtime parameters are specified in `configure.json`. The file is read at startup and a copy is saved alongside the output.
+A sample plant scan ships at `resources/data/Ca46-2.ply`.
 
-### A. Input Settings
+```bash
+# 1. point the config at the sample input + an output folder
+$EDITOR resources/default_configure.json
+#    "Point_Cloud_File_Path": "resources/data/Ca46-2.ply"
+#    "Output_Folder_Path":    "output"
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `Batch_Processing` | bool | `true` for batch mode (process all files in a folder) |
-| `Batch_Folder_Path` | string | Folder containing input point clouds (batch mode) |
-| `Point_Cloud_File_Path` | string | Path to a single input file (single mode) |
-| `Point_Cloud_File_Extension` | string | File extension filter for batch mode (e.g. `.ply`) |
-| `With_Labels` | bool | Whether the input file contains ground-truth labels |
-| `Labels_Names` | object | Label column names/indices for PLY and TXT/XYZ formats |
+# 2. run the CLI (results land in output/Ca46-2/)
+./build/bin/SkelSeg
 
-### B. Preprocessing
+# 3. or explore stage-by-stage in the GUI
+./build/bin/SkelSeg_Viewer
+```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `Down_Sample_Number` | int | 10240 | Target point count after uniform downsampling |
-| `Normalize_Diagonal_Length` | float | 1.6 | Diagonal length of the normalized bounding box |
-
-### C. Constrained Laplacian Operator
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `Use_KNN_Search` | bool | true | Use KNN for neighborhood construction |
-| `Use_Radius_Search` | bool | false | Use radius search for neighborhood construction |
-| `Initial_k` | int | 8 | Initial KNN neighbor count |
-| `Delta_k` | int | 4 | KNN increment per iteration |
-| `Max_k` | int | 32 | Maximum KNN neighbor count |
-| `Initial_Radius_Search_Ratio` | float | 0.015 | Initial search radius (fraction of diagonal) |
-| `Delta_Radius_Search_Ratio` | float | 0.005 | Radius increment per iteration |
-| `Min_Radius_Search_Ratio` | float | 0.005 | Minimum search radius |
-
-### D. Adaptive Contraction
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `Smooth_Sigma_Threshold` | float | 0.9 | Sigma threshold for adaptive contraction |
-| `Sigma_Sphere_Radius_Ratio` | float | 0.015 | Local sphere radius for sigma computation |
-| `Max_Distance_Ratio` | float | 0.005 | Maximum displacement per iteration (fraction of diagonal) |
-
-### E. Termination Condition
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `Max_Iteration` | int | 25 | Maximum number of contraction iterations |
-| `Convergence_Threshold` | float | 0.0001 | Volume ratio threshold for convergence |
-
-### F. Skeleton Building
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `Down_Sample_Ratio` | float | 0.1 | Fraction of skeleton points to keep after FPS |
-| `LOP_Sphere_Radius_Ratio` | float | 0.045 | LOP neighborhood radius (fraction of diagonal) |
-| `Noise_Branch_Length_Ratio` | float | 0.001 | Minimum branch length to keep (fraction of diagonal) |
-
-### G. Output Settings
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `Output_Folder_Path` | string | -- | Directory for all output files |
-| `Output_PLY_File_DataFormat` | string | "ASCII" | PLY format: `"ASCII"` or `"Binary"` |
+Each input `Plant.ply` produces a folder containing the per-stage PLYs (`1_Input.ply`, `2_FPS-Downsampled.ply`, `3_LOP-Calibrated.ply`, `4_Initial-Graph.ply`, `5_MST-Raw.ply`, `6_MST-Pruned.ply`, `7_MST-Segmented.ply`) and the final `Plant_Result.ply` whose vertices carry two extra properties: `pred-semantic` (`0` = stem, `1` = leaf) and `pred-instance` (`-1` = stem, `0, 1, 2, …` = leaf ID).
 
 ---
 
-## 8. Usage
+## Interactive Viewer
 
-### 8.1 Command-Line Interface
+`SkelSeg_Viewer` runs the same pipeline interactively. Stages can be triggered individually or as *Run All*, parameters edited live, and any layer toggled in the *Layer Manager*.
 
-1. Edit `configure.json` to set input/output paths and parameters.
-
-2. Run the executable from the build directory:
-
-```bash
-./SkelSeg
-```
-
-The program reads `../configure.json` relative to the working directory. In **single mode**, it processes the file specified by `Point_Cloud_File_Path`. In **batch mode**, it iterates over all matching files in `Batch_Folder_Path`.
-
-### 8.2 Supported Input Formats
-
-| Format | Extension | Notes |
-|--------|-----------|-------|
-| PLY | `.ply` | ASCII or binary; vertex properties `x y z` |
-| XYZ | `.xyz` | Space-separated `x y z` per line |
-| TXT | `.txt` | Space-separated `x y z` per line |
-
-When `With_Labels` is `true`, the program expects ground-truth semantic and instance labels either as additional PLY properties or as extra columns in TXT/XYZ files (configured via `Labels_Names`).
-
-### 8.3 Interactive Viewer
-
-```bash
-./SkelSeg_Viewer
-```
-
-1. **Load configuration**: *Parameters Setting* > *Load from File* -- select a `configure.json`.
-2. **Adjust parameters**: open the *Parameter Panel* to tune values.
-3. **Run pipeline**: *Skeleton Extraction* > *Run All*, or open *Pipeline Control* to execute stages individually.
-4. **Inspect results**: use the *Layer Manager* to toggle visibility of point clouds and graph layers at each stage.
-
-### 8.4 Output Files
-
-All output files are written to `Output_Folder_Path`:
-
-```
-Output/
- |-**/
-    ├── 1_Laplacian-Skeleton.ply    # Contracted skeleton
-    ├── 2_FPS-Downsampled.ply       # Skeleton after FPS
-    ├── 3_LOP-Calibrated.ply        # Skeleton after LOP refinement
-    ├── 4_Initial-Graph.ply         # Initial skeleton graph
-    ├── 5_MST-Raw.ply               # Raw MST
-    ├── 6_MST-Pruned.ply            # Pruned MST
-    ├── 7_MST-Segmented.ply         # Segmented MST with labels
-    ├── <name>_Result.ply           # Final point cloud with pred-semantic and pred-instance
-    ├── configure.json              # Copy of the configuration used
-    └── .log                        # Processing log
-```
-
-The final `_Result.ply` file contains two additional vertex properties:
-
-- `pred-semantic`: `0` = stem, `1` = leaf
-- `pred-instance`: `-1` = stem, `0, 1, 2, ...` = individual leaf IDs
+<!--
+  FIGURE 3 -- VIEWER SCREENSHOT
+  Open SkelSeg_Viewer with the sample plant, run the full pipeline, and take
+  one screenshot showing the main window with: the 3D scene on the left
+  (segmented colored cloud + skeleton overlay), the Parameter Panel on the
+  right, and the Log Panel docked at the bottom. Make sure the Pipeline
+  Control toolbar is visible. Recommended ~1600×900 px.
+-->
+![viewer](docs/figures/viewer.png)
 
 ---
 
-## 9. Evaluation
+## Configuration
 
-Python scripts in `eval/` compute segmentation metrics by comparing predicted labels against ground-truth annotations.
+All runtime parameters live in a single JSON file (`resources/default_configure.json` by default). Geometric thresholds are expressed as ratios of the normalized AABB diagonal so that the same configuration generalizes across plants of different physical scale.
 
-### 9.1 Running Evaluation
+<details>
+<summary><b>Full parameter reference</b></summary>
 
+**Input.** `Batch_Processing`, `Batch_Processing_Folder_Path`, `Point_Cloud_File_Path`, `Point_Cloud_File_Extension`, `With_Labels`, `Labels_Names.PLY_Format`, `Labels_Names.TXT_XYZ_Format`.
+
+**Preprocess.** `Down_Sample_Number` (10240), `Normalize_AABB_Length` (1.6), `Normalize_Center` ([0,0,0]), `Normalize_Scaling` (0 = auto).
+
+**Constrained Laplacian Operator.** `Use_KNN_Search` (true) / `Use_Radius_Search` (false); `Initial_k`, `Delta_k`, `Max_k` (8 / 4 / 32); `Initial_Radius_Search_Ratio`, `Delta_Radius_Search_Ratio`, `Min_Radius_Search_Ratio` (0.015 / 0.005 / 0.005).
+
+**Adaptive Contraction.** `Smooth_Sigma_Threshold` (0.9), `Sigma_Sphere_Radius_Ratio` (0.015), `Max_Distance_Ratio` (0.005).
+
+**Termination.** `Max_Iteration` (25), `Convergence_Threshold` (1e-4).
+
+**Skeleton Building.** `Down_Sample_Ratio` (0.1), `LOP_Sphere_Radius_Ratio` (0.045), `Noise_Branch_Length_Ratio` (0.001).
+
+**Output.** `Output_Folder_Path`, `Output_PLY_File_DataFormat` (`"ASCII"` or `"Binary"`).
+
+</details>
+
+---
+
+## Evaluation
+
+<!--
+  FIGURE 4 — QUALITATIVE RESULTS (one row, 3-4 plants)
+  Pick 3-4 plants of varying complexity (simple seedling, mature plant,
+  highly branched specimen). For each, render two panels: the input cloud
+  and the final segmented cloud. Stack input/output vertically and place the
+  plants horizontally. Recommended ~1600×600 px.
+-->
+![results](docs/figures/results.png)
+
+**Skeleton quality (C++).**
 ```bash
-cd eval
-python main.py
+./build/bin/SkeletonEvaluator <point_cloud.ply> <skeleton.ply>
 ```
+Reports the forward (cloud→skeleton, mean and 90th percentile), reverse (skeleton→cloud, mean), and Chamfer distance between an input cloud and a skeleton graph.
 
-**Python dependencies**: `numpy`, `scipy`, `scikit-learn`, `plyfile`
-
-Install them with:
-
+**Segmentation quality (Python).**
 ```bash
 pip install numpy scipy scikit-learn plyfile
+cd eval/segmentation && python3 main.py
+```
+Computes per-class Precision / Recall / F1 / IoU and overall accuracy for stem–leaf semantic segmentation, and MUCov, MWCov, AP@0.5, per-class Precision / Recall for leaf instance segmentation. Edit the source / destination paths at the bottom of `main.py` to match your output layout.
+
+---
+
+## Citation
+
+```bibtex
+@article{skelseg,
+  title   = {SkelSeg: Plant Skeleton Extraction and Stem--Leaf Segmentation
+             from 3D Point Clouds},
+  author  = {Shen, Qiwei and others},
+  journal = {<to appear>},
+  year    = {2026}
+}
 ```
 
 ---
+
+## Acknowledgments
+
+SkelSeg builds on the curve-skeleton method of Cao *et al.* (2010) and the LOP operator of Lipman *et al.* (2007), and links against [Easy3D](https://github.com/LiangliangNan/Easy3D), [geometry-central](https://github.com/nmwsharp/geometry-central), [Eigen](https://eigen.tuxfamily.org/), [Boost.Graph](https://www.boost.org/doc/libs/release/libs/graph/), [nlohmann/json](https://github.com/nlohmann/json), [{fmt}](https://github.com/fmtlib/fmt), [plywoot](https://github.com/ton/plywoot), and [KDTree](https://github.com/crvs/KDTree).
 
 ## License
 
-*To be determined.*
+Released under the **GNU General Public License v3.0**. See [`LICENSE`](./LICENSE).

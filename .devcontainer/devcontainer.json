@@ -6,7 +6,7 @@
 
     // Container user settings
     "remoteUser": "dev",
-    "updateRemoteUserUID": false,
+    "updateRemoteUserUID": true,
 
     "customizations": {
         "vscode": {

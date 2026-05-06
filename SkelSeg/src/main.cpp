@@ -139,9 +139,7 @@ int main() {
 		}
 	} else {
 		Logger::Instance().Log("Single Processing Mode!");
-		const auto base_output = config["Output_Settings"]["Output_Folder_Path"].get<std::string>();
 		const auto input_file_path = config["Input_Settings"]["Point_Cloud_File_Path"].get<std::filesystem::path>();
-		config["Output_Settings"]["Output_Folder_Path"] = (std::filesystem::path(base_output) / input_file_path.stem()).string();
 		MainProcess(input_file_path, config);
 	}
 

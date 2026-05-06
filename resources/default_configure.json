@@ -1,10 +1,10 @@
 {
 	"Input_Settings": {
-		"Batch_Processing": false,
-		"Batch_Processing_Folder_Path": "",
+		"Batch_Processing": true,
+		"Batch_Processing_Folder_Path": "/workspace/dataset/data/TreeML-Data",
 		"Point_Cloud_File_Extension": ".ply",
 		"Point_Cloud_File_Path": "",
-		"With_Labels": true,
+		"With_Labels": false,
 		"Labels_Names": {
 			"PLY_Format": {
 				"Individual_Labels_File": false,
@@ -28,7 +28,7 @@
 		}
 	},
 	"Preprocess": {
-		"Down_Sample_Number": 10240,
+		"Down_Sample_Number": 102400,
 		"Normalize_AABB_Length": 1.6,
 		"Normalize_Center": [
 			0.0,
@@ -62,7 +62,7 @@
 		"Noise_Branch_Length_Ratio": 0.001
 	},
 	"Output_Settings": {
-		"Output_Folder_Path": "",
+		"Output_Folder_Path": "/workspace/dataset/data/TreeML-Data/output",
 		"Output_PLY_File_DataFormat": "ASCII"
 	}
 }

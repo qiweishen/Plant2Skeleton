@@ -5,7 +5,7 @@ FROM docker.io/ubuntu:${UBUNTU_TAG}
 ARG DEBIAN_FRONTEND=noninteractive
 
 # ============================================================
-# Base Development Tools
+# System packages
 # ============================================================
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # ----- Build essentials ----- \
@@ -28,19 +28,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     sudo \
-    locales
-
-# ============================================================
-# C++ Libraries
-# ============================================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
+    locales \
+    # ----- C++ Libraries ----- \
     libomp-dev \
-    libboost-all-dev
-
-# ============================================================
-# GUI Dependencies
-# ============================================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
+    libboost-all-dev \
     # ----- OpenGL / Graphics ----- \
     libgl1-mesa-dev \
     libglu1-mesa-dev \
@@ -53,30 +44,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxi-dev \
     libxext-dev \
     libx11-dev \
-	# ----- Qt6 (GUI framework) ----- \
+    # ----- Qt6 (GUI framework) ----- \
     qt6-base-dev \
     qt6-tools-dev \
-    libqt6opengl6-dev
+    libqt6opengl6-dev \
+    # ----- Python ----- \
+    python3-dev \
+    python3-pip \
+    python3-venv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
 # Python
 # ============================================================
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-dev \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --no-cache-dir --break-system-packages \
+RUN pip install --no-cache-dir \
     numpy \
     scipy \
     scikit-learn \
     plyfile
-
-
-# ============================================================
-# Clean cache to reduce image size
-# ============================================================
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
 # Locale Configuration
@@ -87,6 +73,8 @@ ENV LC_ALL=en_US.UTF-8
 
 # ============================================================
 # Create Non-root User
+# UID/GID come from build args so they can match the host user;
+# pass them via docker-compose `args:` (USER_UID / USER_GID).
 # ============================================================
 ARG USERNAME=dev
 ARG USER_UID=1000

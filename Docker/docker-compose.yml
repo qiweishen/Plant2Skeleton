@@ -4,6 +4,13 @@ services:
         build:
             context: ..
             dockerfile: Docker/Dockerfile
+            # Match container's `dev` user to the host user so files
+            # under /workspace get correct ownership. Override in .env:
+            #   USER_UID=$(id -u)
+            #   USER_GID=$(id -g)
+            args:
+                USER_UID: ${USER_UID:-1000}
+                USER_GID: ${USER_GID:-1000}
 
         # Keep container running for interactive use
         stdin_open: true
@@ -22,28 +29,33 @@ services:
 
         environment:
             PYTHONUNBUFFERED: 1
-            # X11
+            # X11 — run `xhost +local:` on the host once per session.
+            # No XAUTHORITY: we rely on the abstract Unix socket + xhost,
+            # which avoids the brittle ~/.Xauthority bind mount.
             DISPLAY: ${DISPLAY:-:0}
-            XAUTHORITY: /tmp/.docker.xauth
             # Wayland
             WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-}
-            XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/run/user/1000}
+            # Container's runtime dir is keyed off the dev user's UID.
+            XDG_RUNTIME_DIR: /run/user/${USER_UID:-1000}
             # Audio
-            PULSE_SERVER: ${PULSE_SERVER:-unix:/run/user/1000/pulse/native}
+            PULSE_SERVER: ${PULSE_SERVER:-unix:/run/user/${USER_UID:-1000}/pulse/native}
             # Software rendering (set 0 for GPU acceleration)
             LIBGL_ALWAYS_SOFTWARE: 1
 
         volumes:
             - ..:/workspace
-            # Mount our dataset directory
-            - /mnt/SharedData/SkelSeg-Appendix:/workspace/dataset
-            # X11 socket and auth
+            # X11 socket
             - /tmp/.X11-unix:/tmp/.X11-unix:rw
-            - ${HOME}/.Xauthority:/tmp/.docker.xauth:ro
-            # WSLg (safe to include on native Linux)
-            - /mnt/wslg:/mnt/wslg
-            # User runtime (audio, D-Bus, etc.)
-            - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}
+            # User runtime (audio, D-Bus, etc.) — host XDG_RUNTIME_DIR
+            # is mapped to the container's UID-keyed path so paths inside
+            # the container match what apps expect.
+            - ${XDG_RUNTIME_DIR:-/run/user/1000}:/run/user/${USER_UID:-1000}
+
+            # Optional mounts
+            - /mnt/SharedData/SkelSeg-Appendix:/workspace/dataset
+
+            # WSLg (only on WSL2 hosts):
+            # - /mnt/wslg:/mnt/wslg
 
         working_dir: /workspace
 
