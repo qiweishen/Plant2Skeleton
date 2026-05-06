@@ -1,7 +1,5 @@
 # Todo List
 
-- [ ] Create README.md
-
 - [ ] Choose a suitable License
 
 - [ ] Compare the performance of different ways to construct robust Laplacian operator
@@ -17,3 +15,5 @@ ___
 ### Done ✓
 
 - [x] Create TODO.md
+
+- [x] Create README.md
