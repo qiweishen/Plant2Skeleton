@@ -4,10 +4,6 @@ services:
         build:
             context: ..
             dockerfile: Docker/Dockerfile
-            # Match container's `dev` user to the host user so files
-            # under /workspace get correct ownership. Override in .env:
-            #   USER_UID=$(id -u)
-            #   USER_GID=$(id -g)
             args:
                 USER_UID: ${USER_UID:-1000}
                 USER_GID: ${USER_GID:-1000}
@@ -51,16 +47,7 @@ services:
             # the container match what apps expect.
             - ${XDG_RUNTIME_DIR:-/run/user/1000}:/run/user/${USER_UID:-1000}
 
-            # Optional mounts
-            - /mnt/SharedData/SkelSeg-Appendix:/workspace/dataset
-
             # WSLg (only on WSL2 hosts):
             # - /mnt/wslg:/mnt/wslg
 
         working_dir: /workspace
-
-        # Nvidia GPU (requires nvidia-container-toolkit)
-        # runtime: nvidia
-        # environment:
-        #   NVIDIA_VISIBLE_DEVICES: all
-        #   NVIDIA_DRIVER_CAPABILITIES: all

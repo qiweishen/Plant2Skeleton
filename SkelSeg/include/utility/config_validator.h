@@ -88,6 +88,7 @@ namespace configvalidator {
 		}
 
 		bool batch_processing = input_settings["Batch_Processing"].get<bool>();
+#if not GUI_MODE
 		if (batch_processing) {
 			// Check "Batch_Processing_Folder_Path"
 			if (!input_settings.contains("Batch_Processing_Folder_Path") || !input_settings["Batch_Processing_Folder_Path"].is_string()) {
@@ -103,6 +104,9 @@ namespace configvalidator {
 				return fmt::format("Filesystem error: {}", e.what());
 			}
 		}
+#else
+		batch_processing = false;
+#endif
 
 		// Check "Point_Cloud_File_Extension"
 		if (!input_settings.contains("Point_Cloud_File_Extension") || !input_settings["Point_Cloud_File_Extension"].is_string()) {

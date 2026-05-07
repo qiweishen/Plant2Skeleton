@@ -801,7 +801,7 @@ private:
 	// Parameter editing panel
 	void draw_parameter_panel() {
 		ImGui::SetNextWindowPos(ImVec2(3, menu_height_ + 35), ImGuiCond_FirstUseEver);
-		ImGui::SetNextWindowSize(ImVec2(380, 560), ImGuiCond_FirstUseEver);
+		ImGui::SetNextWindowSize(ImVec2(380, 590), ImGuiCond_FirstUseEver);
 
 		if (!ImGui::Begin("Parameters", &show_param_panel_)) {
 			ImGui::End();
@@ -866,16 +866,28 @@ private:
 
 			std::filesystem::path input_file_path(buf_pc_path_);
 			bool wl = in.value("With_Labels", false);
-			bool is_ply = (input_file_path.extension() == ".ply");
+			bool is_ply = input_file_path.extension() == ".ply";
 
 			if (!is_ply) {	// Default format: x, y ,z
+				// TODO: support xyz/txt input with labels
+				in["With_Labels"] = wl = false;
 				auto &xyz_txt = in["Labels_Names"]["TXT_XYZ_Format"];
-				int total_cols = xyz_txt.value("Total_Columns", 3);
+				int total_cols = xyz_txt.contains("Total_Columns") && !xyz_txt["Total_Columns"].is_null() ? xyz_txt["Total_Columns"].get<int>() : 3;
 				xyz_txt["Total_Columns"] = total_cols;
 			}
 
-			if (ImGui::Checkbox("With Labels", &wl)) {
-				in["With_Labels"] = wl;
+			if (!is_ply) {
+				ImGui::BeginDisabled(true);
+				bool dummy = false;
+				ImGui::Checkbox("With Labels", &dummy);
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+					ImGui::SetTooltip("Currently not available for non-ply file.");
+				}
+				ImGui::EndDisabled();
+			} else {
+				if (ImGui::Checkbox("With Labels", &wl)) {
+					in["With_Labels"] = wl;
+				}
 			}
 
 			if (wl) {

@@ -8,22 +8,6 @@
     "remoteUser": "dev",
     "updateRemoteUserUID": true,
 
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                "ms-vscode.cpptools",
-                "ms-vscode.cmake-tools",
-                "twxs.cmake",
-                "xaver.clang-format",
-                "vadimcn.vscode-lldb"
-            ],
-            "settings": {
-                "cmake.configureOnOpen": false,
-                "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools"
-            }
-        }
-    },
-
     // Keep container running for CLion remote toolchain connection
     "shutdownAction": "none"
 }

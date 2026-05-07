@@ -4,7 +4,7 @@
 		"Batch_Processing_Folder_Path": "",
 		"Point_Cloud_File_Extension": ".ply",
 		"Point_Cloud_File_Path": "../../resources/data/Ca46-2.ply",
-		"With_Labels": false,
+		"With_Labels": true,
 		"Labels_Names": {
 			"PLY_Format": {
 				"Individual_Labels_File": false,
@@ -17,9 +17,9 @@
 			},
 			"TXT_XYZ_Format": {
 				"Individual_Labels_File": false,
-				"Total_Columns": 0,
-				"Semantic_Labels_Index": 0,
-				"Instance_Labels_Index": 0,
+				"Total_Columns": null,
+				"Semantic_Labels_Index": null,
+				"Instance_Labels_Index": null,
 				"Labels_File_Paths": {
 					"Instance_Label_File_Path": "",
 					"Semantic_Label_File_Path": ""
@@ -31,11 +31,11 @@
 		"Down_Sample_Number": 10240,
 		"Normalize_AABB_Length": 1.6,
 		"Normalize_Center": [
-			0.0,
-			0.0,
-			0.0
+			null,
+			null,
+			null
 		],
-		"Normalize_Scaling": 0.0
+		"Normalize_Scaling": null
 	},
 	"Constrained_Laplacian_Operator": {
 		"Use_KNN_Search": true,
