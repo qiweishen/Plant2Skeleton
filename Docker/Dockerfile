@@ -1,5 +1,5 @@
 ARG UBUNTU_TAG=22.04
-FROM docker.io/ubuntu:${UBUNTU_TAG}
+FROM --platform=linux/amd64 docker.io/ubuntu:${UBUNTU_TAG}
 
 # Prevent interactive prompts during package installation
 ARG DEBIAN_FRONTEND=noninteractive
@@ -12,24 +12,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     ninja-build \
-    pkg-config \
     # ----- Version Control ----- \
     git \
-    # ----- Debugging & Analysis ----- \
-    gdb \
-    lldb \
-    valgrind \
-    # ----- File system ----- \
-    zenity \
-    # ----- Code Formatting ----- \
-    clang-format \
     # ----- Utilities ----- \
-    wget \
-    curl \
-    ca-certificates \
     sudo \
     locales \
-    # ----- C++ Libraries ----- \
+#    # ----- C++ Libraries ----- \
     libomp-dev \
     libboost-all-dev \
     # ----- OpenGL / Graphics ----- \
@@ -42,12 +30,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxinerama-dev \
     libxcursor-dev \
     libxi-dev \
-    libxext-dev \
     libx11-dev \
-    # ----- Qt6 (GUI framework) ----- \
-    qt6-base-dev \
-    qt6-tools-dev \
-    libqt6opengl6-dev \
     # ----- Python ----- \
     python3-dev \
     python3-pip \
