@@ -7,9 +7,9 @@
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-A42E2B.svg?style=flat-square)](./LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?style=flat-square&logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.22%2B-064F8C.svg?style=flat-square&logo=cmake&logoColor=white)](https://cmake.org/)
-[![Ubuntu Build](https://github.com/<USER>/SkelSeg/actions/workflows/ubuntu-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/ubuntu-build.yml)
-[![macOS Build](https://github.com/<USER>/SkelSeg/actions/workflows/macos-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml)
-[![Windows Build](https://github.com/<USER>/SkelSeg/actions/workflows/windows-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml)
+[![Ubuntu Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/ubuntu-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/ubuntu-build.yml)
+[![macOS Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml)
+[![Windows Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml)
 
 ![teaser](docs/overview.png)
 
