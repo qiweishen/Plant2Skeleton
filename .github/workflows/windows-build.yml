@@ -1,0 +1,35 @@
+name: Windows Build
+
+on: [ push, pull_request ]
+
+defaults:
+    run:
+        shell: bash -l {0}
+
+jobs:
+    build:
+        name: "Windows - ${{ matrix.build_type }}"
+        strategy:
+            fail-fast: false
+            matrix:
+                build_type: [ Debug, Release ]
+        runs-on: windows-latest
+
+        steps:
+            -   uses: actions/checkout@v4
+
+            -   uses: conda-incubator/setup-miniconda@v3
+                with:
+                    architecture: x64
+                    activate-environment: SkelSeg-Dev
+                    auto-activate-base: false
+                    channels: conda-forge,defaults
+
+            -   name: Install Dependencies via Conda
+                run: conda install -y ninja llvm-openmp libboost-devel glfw glew
+
+            -   name: Configure
+                run: cmake -S . -B build/${{ matrix.build_type }} -GNinja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+            -   name: Build
+                run: cmake --build build/${{ matrix.build_type }} --config ${{ matrix.build_type }} --parallel

@@ -1,0 +1,26 @@
+name: macOS Build
+
+on: [ push, pull_request ]
+
+jobs:
+    build:
+        name: "macOS - ${{ matrix.build_type }}"
+        strategy:
+            fail-fast: false
+            matrix:
+                build_type: [ Debug, Release ]
+        runs-on: macos-latest
+
+        steps:
+            -   uses: actions/checkout@v4
+
+            -   name: Install Dependencies
+                run: |
+                    brew update || true
+                    brew install cmake ninja libomp boost glfw glew
+
+            -   name: Configure
+                run: cmake -S . -B build/${{ matrix.build_type }} -GNinja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+            -   name: Build
+                run: cmake --build build/${{ matrix.build_type }} --parallel
