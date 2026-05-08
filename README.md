@@ -4,10 +4,12 @@
 
 ### Plant Skeleton Extraction and Stem-Leaf Segmentation from 3D Point Clouds
 
-[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
-[![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)](https://en.cppreference.com/w/cpp/20)
-[![CMake](https://img.shields.io/badge/CMake-3.22%2B-064F8C.svg?logo=cmake)](https://cmake.org/)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey.svg)](#installation)
+[![License: GPLv3](https://img.shields.io/badge/License-GPLv3-A42E2B.svg?style=flat-square)](./LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?style=flat-square&logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
+[![CMake](https://img.shields.io/badge/CMake-3.22%2B-064F8C.svg?style=flat-square&logo=cmake&logoColor=white)](https://cmake.org/)
+[![Ubuntu Build](https://github.com/<USER>/SkelSeg/actions/workflows/ubuntu-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/ubuntu-build.yml)
+[![macOS Build](https://github.com/<USER>/SkelSeg/actions/workflows/macos-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml)
+[![Windows Build](https://github.com/<USER>/SkelSeg/actions/workflows/windows-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml)
 
 ![teaser](docs/overview.png)
 
@@ -70,9 +72,11 @@ The build produces three executables under `build/bin/`:
 
 ```bash
 # Ubuntu / Debian
-sudo apt-get install build-essential cmake ninja-build 
+sudo apt update
 
-sudo apt-get install libomp-dev libboost-all-dev libgl1-mesa-dev libglu1-mesa-dev libglfw3-dev libglew-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev libx11-dev
+sudo apt install -y build-essential cmake ninja-build 
+
+sudo apt install -y libomp-dev libboost-all-dev libgl1-mesa-dev libglu1-mesa-dev libglfw3-dev libglew-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libx11-dev
 
 # macOS
 brew install cmake ninja libomp boost glfw glew
@@ -81,7 +85,7 @@ brew install cmake ninja libomp boost glfw glew
 ```bash
 git clone https://github.com/qiweishen/Plant2Skeleton.git
 cd SkelSeg
-mkdir Release
+mkdir Release && cd Release
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make -j$(nproc)
 ```
