@@ -5,11 +5,9 @@
 *cmake-build-*/
 *.idea/
 *.vscode/
-/3rd_party/
+/Release/
 /data/
 /output/
-/build/
-/Release/
 
 # For MacOS
 *.DS_Store
