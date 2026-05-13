@@ -9,6 +9,8 @@
 [![macOS Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml)
 [![Windows Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml)![teaser](docs/overview.png)
 
+</div>
+
 ---
 
 ## Abstract
