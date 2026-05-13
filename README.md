@@ -5,15 +5,9 @@
 ### Plant Skeleton Extraction and Stem-Leaf Segmentation from 3D Point Clouds
 
 [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-A42E2B.svg?style=flat-square)](./LICENSE)
-[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?style=flat-square&logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
-[![CMake](https://img.shields.io/badge/CMake-3.22%2B-064F8C.svg?style=flat-square&logo=cmake&logoColor=white)](https://cmake.org/)
 [![Ubuntu Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/ubuntu-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/ubuntu-build.yml)
 [![macOS Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/macos-build.yml)
-[![Windows Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml)
-
-![teaser](docs/overview.png)
-
-</div>
+[![Windows Build](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml/badge.svg)](https://github.com/qiweishen/Plant2Skeleton/actions/workflows/windows-build.yml)![teaser](docs/overview.png)
 
 ---
 
@@ -23,19 +17,7 @@ We present **SkelSeg**, a two-stage framework for curve-skeleton extraction and 
 
 ---
 
-## Pipeline
-
-```mermaid
-flowchart LR
-    A[Input cloud] --> B[Preprocess]
-    B --> C[Constrained<br/>Laplacian Contraction]
-    C --> D[FPS Downsample + LOP<br/>Calibration]
-    D --> E[Graph Building<br/>→ MST → Pruning]
-    E --> F[Stem / Leaf<br/>Decomposition]
-    F --> G[Label<br/>Projection]
-```
-
-![pipeline](docs/pipeline.png)
+## Pipeline![pipeline](docs/pipeline.png)
 
 1. **Constrained Laplacian Contraction** — iteratively contracts the cloud onto its medial structure.
 2. **LOP Calibration** — Farthest-Point Sampling reduces the contracted cloud, then a modified LOP operator re-anchors each surviving point to the local medial axis.
@@ -47,16 +29,16 @@ flowchart LR
 ## Repository Structure
 
 ```
-SkelSeg/                    # Core code
-application/viewer/         # Easy3D + ImGui interactive viewer
-evaluation/skeleton/        # C++ skeleton-quality evaluator (Chamfer, forward/reverse)
-evaluation/segmentation/    # Python semantic + instance metrics (sklearn / scipy)
-deps/                       # Vendored: Eigen, geometry-central, Easy3D, KDTree, ...
-resources/                  # default_configure.json + sample plant data
-Docker/                     # Dockerfile + docker-compose.yml
+SkelSeg/                  # Core code
+application/viewer/       # Easy3D + ImGui interactive viewer
+evaluation/skeleton/      # C++ skeleton-quality evaluator (Chamfer, forward/reverse)
+evaluation/segmentation/  # Python semantic + instance metrics (sklearn / scipy)
+deps/                     # Vendored: Eigen, geometry-central, Easy3D, KDTree, ...
+resources/                # default_configure.json + sample plant data
+Docker/                   # Dockerfile + docker-compose.yml
 ```
 
-The build produces three executables under `build/bin/`:
+The build produces three executables under `Release/bin/`:
 
 | Target | Role |
 |---|---|
@@ -68,15 +50,17 @@ The build produces three executables under `build/bin/`:
 
 ## Installation
 
-**Requirements.** C++20 (GCC ≥ 11, Clang ≥ 14), CMake 3.22–3.25, OpenMP, Boost (`graph`). The viewer additionally needs OpenGL, GLFW, GLEW, and X11 dev libs on Linux. All other libraries (Eigen, geometry-central, Easy3D, KDTree, nlohmann/json, plywoot, fmt) are vendored under `deps/`.
+**Requirements.** C++20 (GCC ≥ 11, Clang ≥ 14), CMake 3.22–3.25, OpenMP, Boost (`graph`). The viewer additionally needs OpenGL, GLFW, GLEW, and X11 dev libs on Linux. All other libraries (Easy3D, Eigen, fmt, geometry-central, KDTree, nlohmann/json, plywoot) are vendored under `deps/`.
 
 ```bash
 # Ubuntu / Debian
 sudo apt update
-
 sudo apt install -y build-essential cmake ninja-build 
-
-sudo apt install -y libomp-dev libboost-all-dev libgl1-mesa-dev libglu1-mesa-dev libglfw3-dev libglew-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libx11-dev
+sudo apt install -y libomp-dev libboost-all-dev \
+					libgl1-mesa-dev libglu1-mesa-dev \
+					libglfw3-dev libglew-dev \
+					libxrandr-dev libxinerama-dev \
+					libxcursor-dev libxi-dev libx11-dev
 
 # macOS
 brew install cmake ninja libomp boost glfw glew
@@ -119,11 +103,7 @@ And `.iteration` folder stores the contracted skeleton point at every iterations
 
 ## Interactive Viewer
 
-`SkelSeg_Viewer` runs the same pipeline interactively. Stages can be triggered individually or as *Run All*, parameters edited live, and any layer toggled in the *Layer Manager*.
-
-![start viewer](docs/viewer.png)
-
-![run viewer](docs/viewer_2.png)
+`SkelSeg_Viewer` runs the same pipeline interactively. Stages can be triggered individually or as *Run All*, parameters edited live, and any layer toggled in the *Layer Manager*.![start viewer](docs/viewer.png)![run viewer](docs/viewer_2.png)
 
 ---
 
@@ -173,10 +153,11 @@ All runtime parameters live in a single JSON file (`resources/default_configure.
 ## Evaluation
 
 **Skeleton quality (C++).**
+
 ```bash
 ./build/bin/SkeletonEvaluator <point_cloud.ply> <skeleton.ply>
 ```
-Reports the forward (cloud→skeleton, mean and 90th percentile), reverse (skeleton→cloud, mean), and Chamfer distance between an input cloud and a skeleton graph.
+Reports the forward (cloud $\rightarrow$ skeleton, mean and 90th percentile), reverse (skeleton $\rightarrow$ cloud, mean), and Chamfer distance between an input cloud and a skeleton graph.
 
 **Segmentation quality (Python).**
 ```bash
@@ -202,7 +183,9 @@ Computes per-class Precision / Recall / F1 / IoU and overall accuracy for stem�
 
 ## Acknowledgments
 
-SkelSeg builds on [Easy3D](https://github.com/LiangliangNan/Easy3D), [geometry-central](https://github.com/nmwsharp/geometry-central), [Eigen](https://eigen.tuxfamily.org/), [Boost.Graph](https://www.boost.org/doc/libs/release/libs/graph/), [nlohmann/json](https://github.com/nlohmann/json), [{fmt}](https://github.com/fmtlib/fmt), [plywoot](https://github.com/ton/plywoot), and [KDTree](https://github.com/crvs/KDTree).
+SkelSeg builds on [Easy3D](https://github.com/LiangliangNan/Easy3D), [Eigen](https://eigen.tuxfamily.org/), [{fmt}](https://github.com/fmtlib/fmt), [geometry-central](https://github.com/nmwsharp/geometry-central), [KDTree](https://github.com/crvs/KDTree), [nlohmann/json](https://github.com/nlohmann/json), [Boost.Graph](https://www.boost.org/doc/libs/release/libs/graph/), and [plywoot](https://github.com/ton/plywoot).
+
+---
 
 ## License
 
