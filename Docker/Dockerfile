@@ -1,5 +1,5 @@
 ARG UBUNTU_TAG=22.04
-FROM --platform=linux/amd64 docker.io/ubuntu:${UBUNTU_TAG}
+FROM docker.io/ubuntu:${UBUNTU_TAG}
 
 # Prevent interactive prompts during package installation
 ARG DEBIAN_FRONTEND=noninteractive
@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ----- Utilities ----- \
     sudo \
     locales \
-#    # ----- C++ Libraries ----- \
+    # ----- C++ Libraries ----- \
     libomp-dev \
     libboost-all-dev \
     # ----- OpenGL / Graphics ----- \
@@ -34,9 +34,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # ----- Python ----- \
     python3-dev \
     python3-pip \
-    python3-venv \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    python3-venv
+
+# ============================================================
+# Wayland tools (needed by Ubuntu 26.04)
+# ============================================================
+RUN apt-get install -y --no-install-recommends \
+    libwayland-client0 libwayland-cursor0 libwayland-egl1 libxkbcommon0
 
 # ============================================================
 # Python
@@ -46,6 +50,11 @@ RUN pip install --no-cache-dir \
     scipy \
     scikit-learn \
     plyfile
+
+# ============================================================
+# Clean cache to reduce image size
+# ============================================================
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
 # Locale Configuration
