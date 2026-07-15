@@ -50,7 +50,7 @@ The build produces three executables under `Release/bin/`:
 
 ---
 
-## Installation
+## Installation (Ubuntu / Debian & macOS)
 
 **Requirements.** C++20 (GCC ≥ 11, Clang ≥ 14), CMake 3.22–3.25, OpenMP, Boost (`graph`). The viewer additionally needs OpenGL, GLFW, GLEW, and X11 dev libs on Linux. All other libraries (Easy3D, Eigen, fmt, geometry-central, KDTree, nlohmann/json, plywoot) are vendored under `deps/`.
 
@@ -167,19 +167,6 @@ pip install numpy scipy scikit-learn plyfile
 cd eval/segmentation && python3 main.py
 ```
 Computes per-class Precision / Recall / F1 / IoU and overall accuracy for stem–leaf semantic segmentation, and MUCov, MWCov, AP@0.5, per-class Precision / Recall for leaf instance segmentation. Edit the source / destination paths at the bottom of `main.py` to match your output layout.
-
----
-
-## Citation
-
-```bibtex
-@article{skelseg,
-  title   = {SkelSeg: Plant Skeleton Extraction and Stem-Leaf Segmentation from 3D Point Clouds},
-  author  = {XXX, YYY, ZZZ},
-  journal = {XXXX},
-  year    = {2026}
-}
-```
 
 ---
 
